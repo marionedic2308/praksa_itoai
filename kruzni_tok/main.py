@@ -6,8 +6,10 @@ from config import (
     IMAGE_SIZE,
     TRAJANJE_TESTA_SEKUNDE,
     ULAZNI_VIDEO,
+    DEVICE,
     MINIMALNA_SIRINA_OBJEKTA,
     MINIMALNA_VISINA_OBJEKTA,
+    PRIKAZ_VIDEA,
     otvori_video,
 )
 from zones import odredi_zonu, formatiraj_vrijeme_videa
@@ -56,6 +58,7 @@ def main():
             conf=CONFIDENCE,
             imgsz=IMAGE_SIZE,
             tracker="bytetrack.yaml",
+            device=DEVICE,
             verbose=False,
         )
 
@@ -105,15 +108,17 @@ def main():
 
         writer.write(annotated)
 
-        # Realni prikaz videa tijekom obrade.
-        cv2.imshow("Kružni tok - realtime", annotated)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            print("Prekinuto od korisnika.")
-            break
+        # Realni prikaz videa tijekom obrade (ako je uključen).
+        if PRIKAZ_VIDEA:
+            cv2.imshow("Kružni tok - realtime", annotated)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                print("Prekinuto od korisnika.")
+                break
 
     cap.release()
     writer.release()
-    cv2.destroyAllWindows()
+    if PRIKAZ_VIDEA:
+        cv2.destroyAllWindows()
 
     ispisi_izvjestaj(pracenje)
 

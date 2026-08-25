@@ -1,12 +1,32 @@
 from ultralytics import YOLO
 import cv2
 import os
+import torch
 
 # =========================================================
 # MODEL
 # =========================================================
 
 MODEL = YOLO("yolo11m.pt")
+
+# =========================================================
+# UREĐAJ ZA DETEKCIJU
+# =========================================================
+
+# "cuda" koristi NVIDIA grafičku karticu (brže),
+# "cpu" koristi procesor. Ako CUDA nije dostupna,
+# automatski se vraća na CPU.
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+print(f"Detekcija se vrti na uređaju: {DEVICE.upper()}")
+
+# =========================================================
+# PREGLED VIDEA U REALNOM VREMENU
+# =========================================================
+
+# True  -> prikazuje prozor s videom tijekom obrade (cv2.imshow)
+# False -> bez prikaza (brže, za remote/headless izvršavanje)
+PRIKAZ_VIDEA = False
 
 # =========================================================
 # ULAZ / IZLAZ
@@ -72,7 +92,8 @@ def otvori_video():
     cap = cv2.VideoCapture(ULAZNI_VIDEO)
 
     if not cap.isOpened():
-        raise SystemExit(f"GREŠKA: Video '{ULAZNI_VIDEO}' nije moguće otvoriti.")
+        raise SystemExit(
+            f"GREŠKA: Video '{ULAZNI_VIDEO}' nije moguće otvoriti.")
 
     sirina = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     visina = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
