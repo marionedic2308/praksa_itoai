@@ -1,5 +1,8 @@
 from config import REGIJE, BOJE
 
+# Redoslijed regija u kružnom toku (kretanje u ispravnom smjeru).
+CIKLUS_REGIJA = ["R1", "R2", "R3", "R4"]
+
 
 def tocka_u_pravokutniku(tocka, pravokutnik):
     """True ako se točka nalazi unutar pravokutnika."""
@@ -48,3 +51,25 @@ def formatiraj_vrijeme_videa(sekunde):
     ostatak = sekunde % 60
 
     return f"{minute:02d}:{ostatak:06.3f}"
+
+
+def status_prijelaza(trenutna, nova):
+    """
+    Vraca smjer prijelaza izmedu dvije regije u kružnom toku:
+    "naprijed"  - ispravan smjer (R1->R2->R3->R4->R1)
+    "natrag"    - krivi smjer (voznja unazad)
+    "preskok"   - preskocena regija (ne racuna se kao krivi smjer)
+    "ostalo"    - ulazak/izlazak izvan ciklusa (neutralno)
+    """
+
+    if trenutna in CIKLUS_REGIJA and nova in CIKLUS_REGIJA:
+        i = CIKLUS_REGIJA.index(trenutna)
+        j = CIKLUS_REGIJA.index(nova)
+
+        if j == (i + 1) % 4:
+            return "naprijed"
+        if j == (i - 1) % 4:
+            return "natrag"
+        return "preskok"
+
+    return "ostalo"

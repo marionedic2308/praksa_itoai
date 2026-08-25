@@ -101,6 +101,7 @@ def main():
                     confidence,
                     zona,
                     tocka,
+                    pracenje.krivi_smjer_po_idu[track_id],
                 )
 
         nacrtaj_regije(annotated)

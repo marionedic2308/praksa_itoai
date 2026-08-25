@@ -25,6 +25,7 @@ def ispisi_izvjestaj(pracenje):
     print(f"Detekcija ukupno          : {pracenje.ukupno_detekcija}")
     print(f"Odbačeno premalih objekata: {pracenje.odbačeno_premalih}")
     print(f"Broj različitih ID-eva    : {len(pracenje.broj_frameova_po_idu)}")
+    print(f"Vozila krivim smjerom     : {sum(pracenje.krivi_smjer_po_idu.values())}")
     print("--------------------------------------------------")
     print("Broj ulazaka u pojedine zone:")
 

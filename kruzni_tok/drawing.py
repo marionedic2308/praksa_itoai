@@ -37,16 +37,20 @@ def nacrtaj_regije(frame):
         )
 
 
-def nacrtaj_objekt(frame, box, track_id, naziv_klase, confidence, zona, tocka):
-    """Iscrtava bounding box, središnju točku i oznaku za jedan objekt."""
+def nacrtaj_objekt(frame, box, track_id, naziv_klase, confidence, zona, tocka, krivi_smjer=False):
+    """Iscrtava bounding box, središnju točku i oznaku za jedan objekt.
+    Krivi smjer se označava crvenom bojom i upozorenjem."""
 
     x1, y1, x2, y2 = box
-    boja = boja_zone(zona)
+    boja = (0, 0, 255) if krivi_smjer else boja_zone(zona)
 
     cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), boja, 2)
     cv2.circle(frame, tocka, 6, boja, -1)
 
     tekst = f"ID {track_id} | {naziv_klase} | {confidence:.2f} | {zona}"
+    if krivi_smjer:
+        tekst += " | KRIVI SMJER!"
+
     cv2.putText(
         frame,
         tekst,

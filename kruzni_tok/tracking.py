@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 from config import MINIMALNO_FRAMEOVA_PRACENJA, ZONE_ZA_IZVJESTAJ
+from zones import status_prijelaza
 
 
 class Pracenje:
@@ -16,6 +17,9 @@ class Pracenje:
         self.klase_po_idu = defaultdict(lambda: defaultdict(int))
         self.maksimalna_pouzdanost_po_idu = defaultdict(float)
         self.broj_ulazaka_u_zone = {zona: 0 for zona in ZONE_ZA_IZVJESTAJ}
+
+        # True kad je za taj ID zabilježena vožnja krivim smjerom.
+        self.krivi_smjer_po_idu = defaultdict(bool)
 
         self.ukupno_detekcija = 0
         self.odbačeno_premalih = 0
@@ -59,6 +63,10 @@ class Pracenje:
             ):
                 self.povijest_zona[track_id].append(zona)
 
+            # Provjera smjera kretanja unutar kružnog toka.
+            if status_prijelaza(prethodna_zona, zona) == "natrag":
+                self.krivi_smjer_po_idu[track_id] = True
+
             poruka = (
                 f"ID {track_id:<3} "
                 f"({self.najcesca_klasa(track_id)}) | "
@@ -66,6 +74,7 @@ class Pracenje:
                 f"-> {zona} | "
                 f"conf {confidence:.2f} | "
                 f"{vrijeme_videa}"
+                f"{' | KRIVI SMJER!' if self.krivi_smjer_po_idu[track_id] else ''}"
             )
 
             self.prethodne_zone[track_id] = zona
