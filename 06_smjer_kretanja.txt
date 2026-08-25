@@ -1,0 +1,44 @@
+TEST 06 – ODREĐIVANJE SMJERA KRETANJA VOZILA
+
+Datum:
+07.07.2026.
+
+Cilj:
+Implementirati određivanje ispravnog smjera kretanja vozila korištenjem dviju virtualnih linija za svaku prometnu traku.
+
+Model:
+YOLO11n (Ultralytics)
+
+Tracker:
+ByteTrack
+
+Ulazni video:
+test06.mp4
+
+Opis:
+Program učitava prethodno istrenirani YOLO11n model te koristi ByteTrack algoritam za detekciju i praćenje vozila kroz videozapis.
+
+Za svaku prometnu traku definirane su dvije virtualne linije (Linija 1 i Linija 2).
+
+Kada vozilo prijeđe Liniju 1, program evidentira vrijeme prolaska te pamti ID vozila. 
+Nakon prelaska Linije 2 provjerava se je li isto vozilo prethodno evidentirano na Liniji 1 iste prometne trake.
+
+Ako je redoslijed prolaska Linija 1 → Linija 2, prolaz se evidentira kao ispravan te se povećava brojač odgovarajuće prometne trake.
+
+Program dodatno prikazuje obje virtualne linije na videozapisu, ispisuje vrijeme prolaska kroz obje linije, vrijeme računala te završnu statistiku prolazaka po prometnim trakama.
+
+Rezultat:
+Program generira novi videozapis na kojem su prikazane obje virtualne linije, detektirana vozila i broj evidentiranih prolazaka po prometnim trakama.
+
+U terminalu se dodatno ispisuju evidentirana vozila, vrijeme prolaska kroz obje linije, vrijeme računala te završni broj prolazaka po svakoj prometnoj traci.
+
+Lokacija rezultata:
+
+rezultati/smjer_kretanja/test06_smjer_kretanja_final.mp4
+
+Naredba za pokretanje:
+
+& C:\Users\Korisnik\anaconda3\envs\praksa-yolo\python.exe 06_smjer_kretanja.py
+
+Napomena:
+Prije izrade završne verzije provedeno je više kalibracija virtualnih linija pomoću pomoćne skripte 06_kalibracija_smjera.py. Tijekom testiranja dodatno su prilagođene postavke modela povećanjem ulazne rezolucije (imgsz=1280), smanjenjem praga pouzdanosti detekcije (conf=0.15) te korištenjem ByteTrack algoritma, čime je postignuta stabilnija detekcija i praćenje vozila na svim prometnim trakama.

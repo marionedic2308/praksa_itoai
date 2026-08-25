@@ -1,0 +1,29 @@
+TEST 01 – DETEKCIJA OBJEKATA NA SLICI
+
+Datum:
+03.07.2026.
+
+Cilj:
+Provjeriti ispravan rad prethodno istreniranog YOLO11n modela na jednoj slici.
+
+Model:
+YOLO11n (Ultralytics)
+
+Ulazna datoteka:
+bus.jpg
+
+Opis:
+Program učitava prethodno istrenirani YOLO11n model te izvršava detekciju objekata na ulaznoj slici. Nakon obrade generira novu sliku s označenim objektima i pripadajućim razinama pouzdanosti (confidence).
+
+Rezultat:
+Model je uspješno prepoznao objekte na slici (osobe i autobus) te spremio obrađenu sliku u mapu rezultata.
+
+Lokacija rezultata:
+runs/detect/rezultati/prvi_test
+
+Napomena:
+Ovaj test predstavlja početnu provjeru ispravnosti instalacije, učitavanja modela i rada YOLO sustava na statičkoj slici.
+ U ovoj fazi ne provodi se praćenje objekata niti njihovo brojanje.
+
+
+ & C:\Users\Korisnik\anaconda3\envs\praksa-yolo\python.exe 01_test_slika.py

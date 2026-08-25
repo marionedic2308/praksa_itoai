@@ -1,0 +1,44 @@
+TEST 04 – BROJANJE VOZILA PRELASKOM PREKO LINIJA
+
+Datum:
+03.07.2026.
+
+Cilj:
+Implementirati brojanje vozila na prometnom videozapisu praćenjem trenutka kada vozilo prijeđe definiranu liniju za brojanje.
+
+Model:
+YOLO11n (Ultralytics)
+
+Ulazni video:
+test03.mp4
+
+Opis:
+Program učitava prethodno istrenirani YOLO11n model te koristi praćenje objekata (tracking) za detekciju i praćenje vozila kroz videozapis.
+
+Za svaku prometnu traku definirana je posebna linija brojanja. Kada vozilo prijeđe odgovarajuću liniju, program ga evidentira i povećava brojač za tu traku.
+
+Linije brojanja nisu određene nasumično, nego su podešene pomoću pomoćne skripte za kalibraciju linija.
+
+Pomoćna skripta:
+05_kalibracija_linija.py
+
+Svrha pomoćne skripte:
+Skripta omogućuje ručno označavanje linija direktno na prikazanom frameu videozapisa. 
+Klikom mišem odabiru se početna i završna točka svake linije, nakon čega program ispisuje koordinate koje se koriste u glavnoj skripti za brojanje vozila.
+
+Glavna skripta:
+04_brojanje_vozila.py
+
+Naredba za pokretanje:
+& C:\Users\Korisnik\anaconda3\envs\praksa-yolo\python.exe 04_brojanje_vozila.py
+
+Rezultat:
+Program generira novi videozapis na kojem su prikazane linije brojanja, detektirana vozila i broj vozila po trakama.
+ U terminalu se dodatno ispisuju evidentirana vozila te završni broj po svakoj traci.
+
+Lokacija rezultata:
+rezultati/brojanje_vozila/test04_brojanje_vozila_final.mp4
+
+Napomena:
+Ovaj test ne temelji brojanje samo na broju dodijeljenih ID-eva, nego na trenutku prelaska vozila preko definirane linije.
+ ID se koristi samo kako se isto vozilo ne bi brojalo više puta.

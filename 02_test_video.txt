@@ -1,0 +1,25 @@
+TEST 02 – DETEKCIJA OBJEKATA NA VIDEOZAPISU
+
+Cilj:
+Provjeriti rad prethodno istreniranog YOLO11n modela na videozapisu te potvrditi uspješnu detekciju objekata.
+
+Model:
+YOLO11n (Ultralytics)
+
+Ulazni video:
+testvideo.mp4
+
+Opis:
+Program učitava prethodno istrenirani YOLO model te obrađuje svaki frame videozapisa. 
+Tijekom obrade model prepoznaje objekte poput automobila, autobusa, osoba i drugih klasa te generira novi video s označenim objektima.
+
+Rezultat:
+Detekcija je uspješno izvršena nad cijelim videozapisom. Rezultat je spremljen u mapu:
+
+runs/detect/rezultati/test_video
+
+Napomena:
+Ovaj test služi isključivo za provjeru ispravnog rada modela na videozapisu.
+ U ovoj fazi model još ne prati pojedina vozila niti ih broji. Tracking i brojanje vozila implementirat će se u sljedećim testovima.
+
+ & C:\Users\Korisnik\anaconda3\envs\praksa-yolo\python.exe 02_test_video.py

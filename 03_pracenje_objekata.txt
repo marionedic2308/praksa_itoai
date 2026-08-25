@@ -1,0 +1,28 @@
+TEST 03 – PRAĆENJE OBJEKATA NA VIDEOZAPISU
+
+Datum:
+03.07.2026.
+
+Cilj:
+Provjeriti mogućnost praćenja objekata (tracking) primjenom prethodno istreniranog YOLO11n modela na prometnom videozapisu.
+
+Model:
+YOLO11n (Ultralytics)
+
+Ulazni video:
+test03.mp4
+
+Opis:
+Program učitava prethodno istrenirani YOLO11n model te primjenjuje funkciju praćenja objekata (tracking) na videozapisu. 
+Za razliku od prethodnog testa, gdje se provodila isključivo detekcija objekata, u ovom testu model nastoji pratiti isti objekt kroz više uzastopnih okvira (frameova) videozapisa dodjeljivanjem jedinstvenog identifikatora (ID).
+
+Rezultat:
+Program obrađuje cijeli videozapis te generira novi video s označenim objektima i njihovim identifikacijskim oznakama (ID), čime se omogućuje praćenje pojedinačnih vozila tijekom njihovog kretanja.
+
+Lokacija rezultata:
+runs/detect/rezultati/pracenje_objekata
+
+Napomena:
+Ovaj test predstavlja prijelaz s detekcije objekata na njihovo praćenje. Dobiveni rezultat poslužit će kao osnova za implementaciju brojanja vozila u sljedećoj fazi projekta.
+
+& C:\Users\Korisnik\anaconda3\envs\praksa-yolo\python.exe 03_pracenje_objekata.py

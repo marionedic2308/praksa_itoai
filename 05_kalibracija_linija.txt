@@ -1,0 +1,32 @@
+TEST 05 – KALIBRACIJA LINIJA ZA BROJANJE VOZILA
+
+Datum:
+03.07.2026.
+
+Cilj:
+Omogućiti jednostavno i precizno određivanje koordinata linija brojanja bez ručnog upisivanja vrijednosti u programski kod.
+
+Ulazni video:
+test03.mp4
+
+Opis:
+Program učitava prvi frame videozapisa te omogućuje korisniku da pomoću miša označi početnu i završnu točku svake linije brojanja.
+
+Za svaku prometnu traku označava se jedna linija klikom na dvije točke (početak i kraj linije).
+ Nakon završetka kalibracije program ispisuje koordinate svih linija u formatu spremnom za kopiranje u glavnu skriptu za brojanje vozila.
+
+Rezultat:
+Dobivene koordinate linija koriste se u skripti:
+
+04_brojanje_vozila.py
+
+Koordinate linija ubaciti u kod nakon što kalibracija završi:
+
+
+Naredba za pokretanje:
+
+& C:\Users\Korisnik\anaconda3\envs\praksa-yolo\python.exe 05_kalibracija_linija.py
+
+Napomena:
+Ova pomoćna skripta izrađena je prema prijedlogu mentora kako bi se izbjeglo ručno pogađanje koordinata linija u izvornom kodu.
+ Na taj način moguće je brzo prilagoditi položaj linija različitim videozapisima bez izmjene logike programa za brojanje vozila.

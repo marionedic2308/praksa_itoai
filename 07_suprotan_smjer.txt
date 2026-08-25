@@ -1,0 +1,33 @@
+TEST 07 – DETEKCIJA VOZILA U SUPROTNOM SMJERU
+
+Datum:
+27.07.2026.
+
+Cilj:
+Provjeriti može li sustav prepoznati vozila koja se kreću u suprotnom smjeru primjenom virtualnih linija te potvrditi da ne dolazi do lažnih detekcija kada se vozila kreću pravilnim smjerom.
+
+Ulazni video:
+test06.mp4
+
+Opis:
+Program koristi isti videozapis, isti model za detekciju objekata i isti princip praćenja vozila kao u Testu 06.
+
+Za razliku od prethodnog testa, zamijenjene su oznake virtualnih linija (Linija 1 i Linija 2) unutar svake prometne trake. 
+Na taj način ista logika programa provjerava prolazak vozila u suprotnom smjeru bez potrebe za izmjenom osnovnog algoritma.
+
+Za svako vozilo prati se jedinstveni identifikator (ID) te se bilježi aktivacija virtualnih linija. Vozilo se evidentira kao vozilo u suprotnom smjeru samo ako prijeđe virtualne linije u redoslijedu koji odgovara kretanju suprotnim smjerom.
+
+Tijekom obrade videozapisa prikazuju se virtualne linije, broj detektiranih vozila po prometnim trakama te ukupan broj vozila detektiranih u suprotnom smjeru.
+
+Rezultat:
+Na korištenom videozapisu nisu zabilježena vozila koja se kreću u suprotnom smjeru.
+
+Program je tijekom obrade ispravno registrirao aktivacije svih virtualnih linija, ali niti jedno vozilo nije zadovoljilo uvjet prolaska za detekciju suprotnog smjera. Kao rezultat toga ukupan broj detektiranih vozila u suprotnom smjeru iznosio je 0, čime je potvrđena ispravnost implementirane logike i izostanak lažnih detekcija.
+
+Naredba za pokretanje:
+
+& C:\Users\Korisnik\anaconda3\envs\praksa-yolo\python.exe 07_suprotan_smjer.py
+
+Napomena:
+Test 07 predstavlja nastavak Testa 06 te koristi isti model, iste virtualne linije i isti algoritam za praćenje objekata.
+ Jedina razlika je zamjena oznaka virtualnih linija unutar svake prometne trake, čime se omogućuje provjera prolaska vozila u suprotnom smjeru. Dobiveni rezultati potvrđuju da sustav pouzdano razlikuje pravilan smjer kretanja od mogućeg kretanja vozila u suprotnom smjeru te ne generira lažne detekcije na videozapisu koji sadrži isključivo vozila koja se kreću pravilnim smjerom.

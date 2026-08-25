@@ -1,0 +1,44 @@
+TEST 06 – KALIBRACIJA DVOSTRUKIH LINIJA ZA ODREĐIVANJE SMJERA KRETANJA
+
+Cilj:
+Omogućiti precizno i jednostavno određivanje koordinata dviju virtualnih linija za svaku prometnu traku na videozapisu s prometom u oba smjera.
+
+Ulazni video:
+test06.mp4
+
+Opis:
+Program učitava prvi frame videozapisa te omogućuje ručno označavanje linija pomoću miša.
+
+Za svaku od četiri prometne trake definiraju se dvije virtualne linije:
+
+T1-L1 i T1-L2
+T2-L1 i T2-L2
+T3-L1 i T3-L2
+T4-L1 i T4-L2
+
+Linija 1 predstavlja prvu liniju na koju vozilo nailazi u očekivanom smjeru kretanja, dok Linija 2 predstavlja drugu liniju koju vozilo treba prijeći.
+
+Za svaku liniju korisnik klikom miša označava početnu i završnu točku. 
+Linije se prikazuju različitim bojama i oznakama kako bi se jasno razlikovala svaka prometna traka i pripadajuće linije.
+
+Nakon označavanja svih osam linija program ispisuje njihove koordinate u formatu spremnom za kopiranje u glavnu skriptu:
+
+06_smjer_kretanja.py
+
+Dobivene koordinate koriste se za provjeru redoslijeda prolaska vozila kroz Liniju 1 i Liniju 2.
+
+Ako vozilo prijeđe Liniju 1, a zatim Liniju 2, prolaz se evidentira kao ispravan.
+
+Rezultat:
+Program ispisuje koordinate svih označenih linija u terminalu i sprema sliku izvršene kalibracije u mapu rezultata.
+
+Lokacija slike kalibracije:
+rezultati/kalibracija_smjera.jpg
+
+Napomena:
+Položaj i duljina linija značajno utječu na broj registriranih prolazaka. 
+Tijekom testiranja provedeno je više kalibracija kako bi linije presijecale stvarnu putanju vozila i omogućile pouzdano bilježenje redoslijeda prolaska.
+
+Naredba za pokretanje:
+
+& C:\Users\Korisnik\anaconda3\envs\praksa-yolo\python.exe 06_kalibracija_smjera.py
