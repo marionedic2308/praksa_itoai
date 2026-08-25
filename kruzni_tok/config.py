@@ -1,4 +1,3 @@
-from ultralytics import YOLO
 import cv2
 import os
 import torch
@@ -7,18 +6,26 @@ import torch
 # MODEL
 # =========================================================
 
-MODEL = YOLO("yolo11x.pt")
+# OBB model je treniran za snimke iz zraka i prepoznaje mala vozila.
+MODEL_IME = "yolo11n-obb.pt"
+
+
+def ucitaj_model():
+    """Učitava YOLO model tek kada obrada videa počne."""
+
+    from ultralytics import YOLO
+
+    return YOLO(MODEL_IME)
 
 # =========================================================
 # UREĐAJ ZA DETEKCIJU
 # =========================================================
 
+
 # "cuda" koristi NVIDIA grafičku karticu (brže),
 # "cpu" koristi procesor. Ako CUDA nije dostupna,
 # automatski se vraća na CPU.
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-print(f"Detekcija se vrti na uređaju: {DEVICE.upper()}")
 
 # =========================================================
 # PREGLED VIDEA U REALNOM VREMENU
@@ -39,8 +46,10 @@ os.makedirs(IZLAZNA_MAPA, exist_ok=True)
 
 IZLAZNI_VIDEO = os.path.join(
     IZLAZNA_MAPA,
-    "test08_poboljsana_dijagnostika.mp4"
+    "test08_vozila_i_zone.mp4"
 )
+
+IZLAZNI_IZVJESTAJ = os.path.join(IZLAZNA_MAPA, "vozila.csv")
 
 TRAJANJE_TESTA_SEKUNDE = 15
 
@@ -49,15 +58,18 @@ TRAJANJE_TESTA_SEKUNDE = 15
 # =========================================================
 
 CONFIDENCE = 0.10
-IMAGE_SIZE = 1920
+IMAGE_SIZE = 640
 
-# Objekt mora biti praćen najmanje ovoliko frameova
-# prije nego što se smatra dovoljno stabilnim.
-MINIMALNO_FRAMEOVA_PRACENJA = 4
+TRACKER = "tracker_zona.yaml"
 
-# Minimalne dimenzije bounding boxa (odbacujemo sitne detekcije).
-MINIMALNA_SIRINA_OBJEKTA = 8
-MINIMALNA_VISINA_OBJEKTA = 8
+# Nova zona mora biti prisutna u 3 uzastopna framea prije zapisa.
+MINIMALNO_FRAMEOVA_U_NOVOJ_ZONI = 3
+
+# Kraći ID-evi ostaju u CSV-u, ali su označeni kao nestabilni.
+MINIMALNO_FRAMEOVA_STABILNOG_IDA = 5
+
+# DOTA nazivi klasa koje OBB model koristi za vozila.
+PRACENE_KLASE = {"small vehicle", "large vehicle"}
 
 # =========================================================
 # REGIJE (dobivene kalibracijom)
@@ -68,8 +80,12 @@ REGIJE = {
     "Regija 2": ((1115, 421), (1365, 586)),
     "Regija 3": ((848, 693), (991, 902)),
     "Regija 4": ((540, 463), (796, 584)),
-    "Regija 5 - KRUZNI TOK": ((474, 169), (1400, 962)),
 }
+
+# R5 je prsten ceste oko središnjeg otoka, a ne veliki pravokutnik.
+KRUZNI_TOK_CENTAR = (960, 535)
+KRUZNI_TOK_UNUTARNJI_POLUPRECNIK = 150
+KRUZNI_TOK_VANJSKI_POLUPRECNIK = 320
 
 BOJE = {
     "Regija 1": (0, 0, 255),
@@ -81,6 +97,22 @@ BOJE = {
 
 # Redoslijed zona za izvjestaj.
 ZONE_ZA_IZVJESTAJ = ["R1", "R2", "R3", "R4", "R5", "IZVAN"]
+
+
+def _napravi_writer(putanja, fps, velicina):
+    """
+    Stvara VideoWriter. Najprije proba H.264 (avc1) jer je
+    najkompatibilniji s playerima, a ako nije dostupan vraca se na mp4v.
+    """
+
+    for codec in ("avc1", "mp4v"):
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        writer = cv2.VideoWriter(putanja, fourcc, fps, velicina)
+        if writer.isOpened():
+            return writer
+        writer.release()
+
+    return None
 
 
 def otvori_video():
@@ -109,10 +141,9 @@ def otvori_video():
         ukupno_frameova
     )
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(IZLAZNI_VIDEO, fourcc, fps, (sirina, visina))
+    writer = _napravi_writer(IZLAZNI_VIDEO, fps, (sirina, visina))
 
-    if not writer.isOpened():
+    if writer is None:
         cap.release()
         raise SystemExit("GREŠKA: Izlazni video nije moguće otvoriti.")
 

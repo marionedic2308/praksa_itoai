@@ -1,7 +1,13 @@
-from config import REGIJE, BOJE
+from config import (
+    BOJE,
+    KRUZNI_TOK_CENTAR,
+    KRUZNI_TOK_UNUTARNJI_POLUPRECNIK,
+    KRUZNI_TOK_VANJSKI_POLUPRECNIK,
+    REGIJE,
+)
 
-# Redoslijed regija u kružnom toku (kretanje u ispravnom smjeru).
-CIKLUS_REGIJA = ["R1", "R2", "R3", "R4"]
+# Ispravan smjer vožnje gledano iz zraka je suprotno od kazaljke na satu.
+CIKLUS_REGIJA = ["R1", "R4", "R3", "R2"]
 
 
 def tocka_u_pravokutniku(tocka, pravokutnik):
@@ -23,7 +29,14 @@ def odredi_zonu(tocka):
         if tocka_u_pravokutniku(tocka, REGIJE[f"Regija {broj_regije}"]):
             return f"R{broj_regije}"
 
-    if tocka_u_pravokutniku(tocka, REGIJE["Regija 5 - KRUZNI TOK"]):
+    x, y = tocka
+    cx, cy = KRUZNI_TOK_CENTAR
+    udaljenost_na_kvadrat = (x - cx) ** 2 + (y - cy) ** 2
+
+    unutarnji = KRUZNI_TOK_UNUTARNJI_POLUPRECNIK ** 2
+    vanjski = KRUZNI_TOK_VANJSKI_POLUPRECNIK ** 2
+
+    if unutarnji <= udaljenost_na_kvadrat <= vanjski:
         return "R5"
 
     return "IZVAN"
@@ -56,7 +69,7 @@ def formatiraj_vrijeme_videa(sekunde):
 def status_prijelaza(trenutna, nova):
     """
     Vraca smjer prijelaza izmedu dvije regije u kružnom toku:
-    "naprijed"  - ispravan smjer (R1->R2->R3->R4->R1)
+    "naprijed"  - ispravan smjer (R1->R4->R3->R2->R1)
     "natrag"    - krivi smjer (voznja unazad)
     "preskok"   - preskocena regija (ne racuna se kao krivi smjer)
     "ostalo"    - ulazak/izlazak izvan ciklusa (neutralno)

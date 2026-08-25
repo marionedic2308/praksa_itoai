@@ -1,15 +1,17 @@
+import sys
+
 import cv2
 
 from config import (
-    MODEL,
     CONFIDENCE,
     IMAGE_SIZE,
     TRAJANJE_TESTA_SEKUNDE,
     ULAZNI_VIDEO,
     DEVICE,
-    MINIMALNA_SIRINA_OBJEKTA,
-    MINIMALNA_VISINA_OBJEKTA,
+    TRACKER,
+    PRACENE_KLASE,
     PRIKAZ_VIDEA,
+    ucitaj_model,
     otvori_video,
 )
 from zones import odredi_zonu, formatiraj_vrijeme_videa
@@ -19,8 +21,14 @@ from report import ispisi_izvjestaj
 
 
 def main():
-    print("Pokrećem Test 08 – poboljšana detekcija kružnog toka...")
+    # Omogućava ispravan ispis č, ć, ž, š i đ u Windows terminalu.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
 
+    print("Pokrećem Test 08 – poboljšana detekcija kružnog toka...")
+    print(f"Detekcija se vrti na uređaju: {DEVICE.upper()}")
+
+    model = ucitaj_model()
     cap, writer, (sirina, visina, fps, maksimalno_frameova) = otvori_video()
 
     print(f"Ulazni video       : {ULAZNI_VIDEO}")
@@ -52,56 +60,59 @@ def main():
         if frame_broj % 100 == 0:
             print(f"Obrađen frame: {frame_broj}/{maksimalno_frameova}")
 
-        results = MODEL.track(
+        results = model.track(
             frame,
             persist=True,
             conf=CONFIDENCE,
             imgsz=IMAGE_SIZE,
-            tracker="bytetrack.yaml",
+            tracker=TRACKER,
             device=DEVICE,
             verbose=False,
         )
 
         annotated = frame.copy()
-        boxes = results[0].boxes
+        # OBB model vraća rotirane okvire. Za crtanje koristimo njihov
+        # obični xyxy pravokutnik, a ID, klasu i confidence zadržavamo.
+        detekcije = results[0].obb
 
-        if boxes is not None and boxes.id is not None and len(boxes) > 0:
-            ids = boxes.id.cpu().numpy().astype(int)
-            klase = boxes.cls.cpu().numpy().astype(int)
-            pouzdanosti = boxes.conf.cpu().numpy()
-            koordinate = boxes.xyxy.cpu().numpy()
+        if detekcije is not None and detekcije.id is not None:
+            ids = detekcije.id.cpu().numpy().astype(int)
+            klase = detekcije.cls.cpu().numpy().astype(int)
+            pouzdanosti = detekcije.conf.cpu().numpy()
+            koordinate = detekcije.xyxy.cpu().numpy()
 
             for box, track_id, cls_id, confidence in zip(
                 koordinate, ids, klase, pouzdanosti
             ):
-                sirina_objekta = box[2] - box[0]
-                visina_objekta = box[3] - box[1]
+                naziv_klase = model.names[int(cls_id)]
 
-                if (
-                    sirina_objekta < MINIMALNA_SIRINA_OBJEKTA
-                    or visina_objekta < MINIMALNA_VISINA_OBJEKTA
-                ):
-                    pracenje.odbačeno_premalih += 1
+                if naziv_klase not in PRACENE_KLASE:
                     continue
 
                 tocka = (int((box[0] + box[2]) / 2), int((box[1] + box[3]) / 2))
                 zona = odredi_zonu(tocka)
 
+                # Parkirana vozila i ostali ID-evi koji nikada nisu ušli
+                # u nadzirane zone ne pripadaju izvještaju kružnog toka.
+                if zona == "IZVAN" and track_id not in pracenje.vozila:
+                    continue
+
                 poruka = pracenje.obradi_objekt(
-                    track_id, MODEL.names[int(cls_id)], confidence, zona, vrijeme_videa
+                    track_id, naziv_klase, confidence, zona, vrijeme_videa
                 )
                 if poruka:
                     print(poruka)
 
+                vozilo = pracenje.vozila[track_id]
                 nacrtaj_objekt(
                     annotated,
                     box,
                     track_id,
-                    MODEL.names[int(cls_id)],
-                    confidence,
-                    zona,
+                    vozilo.najcesca_klasa,
+                    vozilo.zadnja_zona,
+                    vozilo.posjecene_zone,
                     tocka,
-                    pracenje.krivi_smjer_po_idu[track_id],
+                    vozilo.krivi_smjer,
                 )
 
         nacrtaj_regije(annotated)

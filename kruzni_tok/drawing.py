@@ -1,23 +1,45 @@
 import cv2
 
-from config import REGIJE, BOJE
+from config import (
+    BOJE,
+    KRUZNI_TOK_CENTAR,
+    KRUZNI_TOK_UNUTARNJI_POLUPRECNIK,
+    KRUZNI_TOK_VANJSKI_POLUPRECNIK,
+    REGIJE,
+)
 from zones import boja_zone
 
 
 def nacrtaj_regije(frame):
     """Iscrtava okvire svih regija na frame."""
 
-    # Velika Regija 5 (kružni tok).
+    # R5 je prsten ceste oko središnjeg otoka.
     naziv_r5 = "Regija 5 - KRUZNI TOK"
-    p5 = REGIJE[naziv_r5]
-    cv2.rectangle(frame, p5[0], p5[1], BOJE[naziv_r5], 3)
+    boja_r5 = BOJE[naziv_r5]
+    cv2.circle(
+        frame,
+        KRUZNI_TOK_CENTAR,
+        KRUZNI_TOK_VANJSKI_POLUPRECNIK,
+        boja_r5,
+        3,
+    )
+    cv2.circle(
+        frame,
+        KRUZNI_TOK_CENTAR,
+        KRUZNI_TOK_UNUTARNJI_POLUPRECNIK,
+        boja_r5,
+        3,
+    )
     cv2.putText(
         frame,
         "R5 - KRUZNI TOK",
-        (p5[0][0], max(25, p5[0][1] - 8)),
+        (
+            KRUZNI_TOK_CENTAR[0] - KRUZNI_TOK_VANJSKI_POLUPRECNIK,
+            KRUZNI_TOK_CENTAR[1] - KRUZNI_TOK_VANJSKI_POLUPRECNIK - 8,
+        ),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
-        BOJE[naziv_r5],
+        boja_r5,
         2,
     )
 
@@ -37,29 +59,82 @@ def nacrtaj_regije(frame):
         )
 
 
-def nacrtaj_objekt(frame, box, track_id, naziv_klase, confidence, zona, tocka, krivi_smjer=False):
-    """Iscrtava bounding box, središnju točku i oznaku za jedan objekt.
-    Krivi smjer se označava crvenom bojom i upozorenjem."""
+def _ispisi_oznaku(frame, redovi, x, y, boja):
+    """Iscrtava jedan ili više redova na tamnoj pozadini."""
 
-    x1, y1, x2, y2 = box
-    boja = (0, 0, 255) if krivi_smjer else boja_zone(zona)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    skala = 0.65
+    debljina = 2
+    razmak = 7
+    rub = 6
 
-    cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), boja, 2)
+    velicine = [
+        cv2.getTextSize(red, font, skala, debljina)[0]
+        for red in redovi
+    ]
+    sirina_oznake = max(sirina for sirina, _ in velicine) + 2 * rub
+    visina_oznake = sum(visina for _, visina in velicine)
+    visina_oznake += razmak * (len(redovi) - 1) + 2 * rub
+
+    visina_framea, sirina_framea = frame.shape[:2]
+    x = max(0, min(x, sirina_framea - sirina_oznake))
+    y = max(0, min(y, visina_framea - visina_oznake))
+
+    cv2.rectangle(
+        frame,
+        (x, y),
+        (x + sirina_oznake, y + visina_oznake),
+        (0, 0, 0),
+        -1,
+    )
+
+    tekst_y = y + rub
+    for red, (_, visina) in zip(redovi, velicine):
+        tekst_y += visina
+        cv2.putText(
+            frame,
+            red,
+            (x + rub, tekst_y),
+            font,
+            skala,
+            boja,
+            debljina,
+        )
+        tekst_y += razmak
+
+
+def nacrtaj_objekt(
+    frame,
+    box,
+    track_id,
+    naziv_klase,
+    trenutna_zona,
+    posjecene_zone,
+    tocka,
+    krivi_smjer=False,
+):
+    """Crta vozilo i iznad njega klasu te sve posjećene zone."""
+
+    x1, y1, x2, y2 = [int(v) for v in box]
+    boja = (0, 0, 255) if krivi_smjer else boja_zone(trenutna_zona)
+
+    cv2.rectangle(frame, (x1, y1), (x2, y2), boja, 3)
     cv2.circle(frame, tocka, 6, boja, -1)
 
-    tekst = f"ID {track_id} | {naziv_klase} | {confidence:.2f} | {zona}"
-    if krivi_smjer:
-        tekst += " | KRIVI SMJER!"
+    zone = ", ".join(posjecene_zone)
+    prvi_red = f"ID {track_id} | {naziv_klase}"
+    drugi_red = f"Zone: {zone}"
 
-    cv2.putText(
-        frame,
-        tekst,
-        (int(x1), max(25, int(y1) - 8)),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.50,
-        boja,
-        2,
-    )
+    if krivi_smjer:
+        prvi_red += " | KRIVI SMJER!"
+
+    # Oznaka iznad boxa; ako je preblizu vrha, ispod boxa.
+    if y1 >= 65:
+        oznaka_y = y1 - 65
+    else:
+        oznaka_y = y2 + 5
+
+    _ispisi_oznaku(frame, [prvi_red, drugi_red], x1, oznaka_y, boja)
 
 
 def nacrtaj_hud(frame, frame_broj, maksimalno_frameova, vrijeme_videa):
