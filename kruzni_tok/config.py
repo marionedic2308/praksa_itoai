@@ -39,7 +39,7 @@ PRIKAZ_VIDEA = False
 # ULAZ / IZLAZ
 # =========================================================
 
-ULAZNI_VIDEO = "test08.mp4"
+ULAZNI_VIDEO = "../test08.mp4"
 
 IZLAZNA_MAPA = "rezultati/kruzni_tok"
 os.makedirs(IZLAZNA_MAPA, exist_ok=True)

@@ -1,24 +1,24 @@
 ﻿id,klasa,prvo_videno,zadnje_videno,broj_frameova,stabilan,najveca_pouzdanost,posjecene_zone,putanja,krivi_smjer
 3,small vehicle,00:00.017,00:06.423,343,DA,0.751,"R5, R2, IZVAN",R5 -> R2 -> IZVAN,NE
 5,large vehicle,00:00.017,00:00.901,53,DA,0.722,"R1, IZVAN",R1 -> IZVAN,NE
-104,small vehicle,00:04.471,00:05.289,40,DA,0.649,R1,R1,NE
-146,small vehicle,00:05.355,00:06.323,58,DA,0.774,R3,R3,NE
-163,small vehicle,00:04.705,00:05.005,18,DA,0.616,R1,R1,NE
-181,small vehicle,00:05.239,00:11.328,325,DA,0.772,"R1, R5, R4, IZVAN",R1 -> R5 -> R4 -> IZVAN,NE
-242,small vehicle,00:06.790,00:14.998,470,DA,0.764,"R5, R2, R1",R5 -> R2 -> R5 -> R1 -> R5,NE
-263,small vehicle,00:07.324,00:07.357,3,NE,0.435,R1,R1,NE
-276,small vehicle,00:07.641,00:07.858,14,DA,0.397,"R1, IZVAN",R1 -> IZVAN,NE
-311,small vehicle,00:09.293,00:10.227,56,DA,0.606,R1,R1,NE
-312,small vehicle,00:13.413,00:14.548,69,DA,0.717,R2,R2,NE
-325,small vehicle,00:09.343,00:09.910,22,DA,0.470,R1,R1,NE
-326,small vehicle,00:09.409,00:09.409,1,NE,0.390,R4,R4,NE
-331,small vehicle,00:09.626,00:09.693,5,DA,0.460,R4,R4,NE
-343,small vehicle,00:09.860,00:09.893,3,NE,0.473,R2,R2,NE
-348,small vehicle,00:13.046,00:14.998,118,DA,0.713,R1,R1,NE
-357,small vehicle,00:10.160,00:11.111,43,DA,0.712,"R2, R5",R2 -> R5,NE
-363,small vehicle,00:10.277,00:10.744,29,DA,0.618,R1,R1,NE
-379,small vehicle,00:10.994,00:14.982,239,DA,0.724,"R1, R5, R4",R1 -> R5 -> R4 -> R5,NE
-438,small vehicle,00:14.147,00:14.164,2,NE,0.434,R1,R1,NE
-447,small vehicle,00:14.548,00:14.998,28,DA,0.475,R2,R2,NE
-457,small vehicle,00:14.715,00:14.731,2,NE,0.430,R5,R5,NE
-464,small vehicle,00:14.982,00:14.998,2,NE,0.624,R5,R5,NE
+103,small vehicle,00:04.471,00:05.289,40,DA,0.649,R1,R1,NE
+145,small vehicle,00:05.355,00:06.323,58,DA,0.774,R3,R3,NE
+162,small vehicle,00:04.705,00:05.005,18,DA,0.616,R1,R1,NE
+180,small vehicle,00:05.239,00:11.328,325,DA,0.772,"R1, R5, R4, IZVAN",R1 -> R5 -> R4 -> IZVAN,NE
+241,small vehicle,00:06.790,00:14.998,470,DA,0.764,"R5, R2, R1",R5 -> R2 -> R5 -> R1 -> R5,NE
+262,small vehicle,00:07.324,00:07.357,3,NE,0.435,R1,R1,NE
+275,small vehicle,00:07.641,00:07.858,14,DA,0.397,"R1, IZVAN",R1 -> IZVAN,NE
+310,small vehicle,00:09.293,00:10.227,56,DA,0.606,R1,R1,NE
+311,small vehicle,00:13.413,00:14.548,69,DA,0.717,R2,R2,NE
+324,small vehicle,00:09.343,00:09.910,22,DA,0.470,R1,R1,NE
+325,small vehicle,00:09.409,00:09.409,1,NE,0.390,R4,R4,NE
+330,small vehicle,00:09.626,00:09.693,5,DA,0.460,R4,R4,NE
+342,small vehicle,00:09.860,00:09.893,3,NE,0.473,R2,R2,NE
+347,small vehicle,00:13.046,00:14.998,118,DA,0.713,R1,R1,NE
+356,small vehicle,00:10.160,00:11.111,43,DA,0.712,"R2, R5",R2 -> R5,NE
+362,small vehicle,00:10.277,00:10.744,29,DA,0.618,R1,R1,NE
+378,small vehicle,00:10.994,00:14.982,239,DA,0.724,"R1, R5, R4",R1 -> R5 -> R4 -> R5,NE
+437,small vehicle,00:14.147,00:14.164,2,NE,0.434,R1,R1,NE
+446,small vehicle,00:14.548,00:14.998,28,DA,0.475,R2,R2,NE
+456,small vehicle,00:14.715,00:14.731,2,NE,0.430,R5,R5,NE
+463,small vehicle,00:14.982,00:14.998,2,NE,0.624,R5,R5,NE
