@@ -1,0 +1,263 @@
+TEST 08 – DETEKCIJA I PRAĆENJE KRETANJA VOZILA U KRUŽNOM TOKU
+
+
+
+Cilj:
+Razviti i testirati sustav za detekciju i praćenje kretanja vozila kroz kružni tok primjenom YOLO modela, ByteTrack algoritma i virtualnih prometnih zona.
+
+Cilj testa bio je objediniti funkcionalnosti razvijane u prethodnim testovima te ih primijeniti na složeniju prometnu situaciju.
+Za razliku od prethodnih testova, u kojima se prolazak vozila uglavnom određivao prelaskom virtualnih linija, u ovom testu prati se cjelokupna putanja pojedinog vozila kroz više definiranih zona kružnog toka.
+
+Ulazni video:
+test08.mp4
+
+Opis:
+Test 08 predstavlja proširenje prethodno razvijenog sustava za detekciju i praćenje vozila.
+ Za obradu je korišten videozapis kružnog toka snimljen iz zračne perspektive, zbog čega se standardni YOLO model korišten u ranijim testovima pokazao nedovoljno prikladnim za pouzdanu detekciju vozila.
+
+Tijekom početne implementacije pojavljivali su se problemi s detekcijom vozila i određivanjem njihove pripadnosti pojedinim zonama. 
+Poseban problem predstavljala je središnja zona kružnog toka, koja je u početnoj verziji bila definirana kao veliki pravokutnik.
+Zbog preklapanja s ostalim regijama nije bilo moguće dovoljno precizno odrediti stvarno kretanje vozila po kolniku kružnog toka.
+
+Uz pomoć mentora izvršena je dorada i reorganizacija Testa 08. Standardni model zamijenjen je modelom:
+
+yolo11n-obb.pt
+
+Radi se o OBB (Oriented Bounding Box) modelu prikladnijem za detekciju objekata na snimkama iz zračne perspektive. 
+Model omogućuje detekciju vozila pomoću rotiranih okvira te koristi klase prikladne za ovakav tip snimke.
+
+U ovom testu prate se klase:
+
+small vehicle
+large vehicle
+
+Za praćenje vozila između pojedinih frameova koristi se ByteTrack.
+ Svakom praćenom vozilu dodjeljuje se jedinstveni ID, čime je moguće pratiti isto vozilo kroz različite dijelove kružnog toka i zabilježiti njegovu cjelokupnu putanju.
+
+Zbog preglednije organizacije programsko rješenje podijeljeno je u više datoteka:
+
+config.py – osnovne postavke modela, videa, zona, trackera i uređaja za izvršavanje
+main.py – glavna obrada videozapisa i pokretanje detekcije
+tracking.py – praćenje ID-eva i povijesti kretanja vozila
+zones.py – određivanje pripadnosti vozila zonama i provjera smjera kretanja
+drawing.py – iscrtavanje zona, vozila, ID-eva i podataka na izlazni video
+report.py – generiranje završnog izvještaja i CSV datoteke
+tracker_zona.yaml – prilagođene postavke ByteTrack algoritma
+
+POSTAVKE DETEKCIJE:
+
+Model:
+yolo11n-obb.pt
+
+Tracker:
+ByteTrack
+
+Confidence:
+0.10
+
+Image size:
+640
+
+Trajanje testne obrade:
+15 sekundi
+
+Videozapis je rezolucije 1920x1080 pri približno 59,94 FPS, što za prvih 15 sekundi daje ukupno 899 frameova za obradu.
+
+
+ZONE KRUŽNOG TOKA:
+
+Za analizu kretanja definirane su zone R1, R2, R3, R4 i R5.
+
+Regije R1–R4 predstavljaju pravokutne zone postavljene na odgovarajućim dijelovima ulaza i izlaza kružnog toka.
+
+Regija R5 predstavlja samu prometnu površinu kružnog toka.
+
+Jedna od važnijih dorada u Testu 08 bila je promjena načina definiranja Regije R5. Umjesto velikog pravokutnika koji je obuhvaćao gotovo cijelo područje kružnog toka, R5 je definirana kao prsten između dva kruga.
+
+Centar kružnog toka:
+(960, 535)
+
+Unutarnji polumjer:
+150 piksela
+
+Vanjski polumjer:
+320 piksela
+
+Time se iz R5 isključuje središnji otok, dok sama prometna površina kružnog toka ostaje obuhvaćena zonom.
+
+Logika implementirana u datoteci zones.py određuje kojoj zoni pripada središnja točka detektiranog vozila.
+
+Prvo se provjeravaju zone R1–R4. One imaju prednost pri određivanju zone jer se njihovi dijelovi nalaze unutar područja definiranog vanjskim polumjerom R5.
+
+Ako vozilo nije pronađeno unutar R1–R4, izračunava se udaljenost njegove središnje točke od centra kružnog toka. Ako se vozilo nalazi između unutarnjeg i vanjskog polumjera, dodjeljuje mu se zona R5.
+
+Ako se vozilo ne nalazi niti u jednoj od navedenih zona, dodjeljuje mu se oznaka:
+
+IZVAN
+
+Na taj način moguće je zabilježiti stvarnu putanju vozila, primjerice:
+
+R1 -> R5 -> R4 -> IZVAN
+
+što predstavlja vozilo koje je iz zone R1 ušlo u kružni tok, kretalo se kroz R5, izašlo kroz R4 te nakon toga napustilo nadzirano područje.
+
+
+PRAĆENJE I STABILIZACIJA:
+
+Kako bi se izbjegle pogrešne promjene zona zbog malih pomicanja detekcijskog okvira između susjednih frameova, uvedena je dodatna stabilizacija.
+
+Nova zona mora biti detektirana kroz najmanje 3 uzastopna framea prije nego što se promjena prihvati i zapiše u povijest kretanja vozila.
+
+Tracker ID smatra se stabilnim ako je vozilo praćeno kroz najmanje 5 frameova.
+
+Kraće detekcije nisu automatski uklonjene iz rezultata, nego se u CSV izvještaju označavaju kao nestabilni ID-evi.
+
+Za svaki tracker ID bilježe se:
+
+- klasa vozila
+- vrijeme prvog pojavljivanja
+- vrijeme zadnjeg pojavljivanja
+- broj frameova u kojima je vozilo praćeno
+- najveća zabilježena confidence vrijednost
+- stabilnost ID-a
+- sve posjećene zone
+- redoslijed kretanja kroz zone
+- informacija o mogućem kretanju u krivom smjeru
+
+
+PROVJERA SMJERA KRETANJA:
+
+Datoteka zones.py osim određivanja pripadnosti pojedinoj zoni sadrži i logiku za provjeru smjera kretanja vozila.
+
+Ispravan smjer vožnje kroz kružni tok, gledano iz zračne perspektive korištenog videozapisa, definiran je ciklusom:
+
+R1 -> R4 -> R3 -> R2 -> R1
+
+Program uspoređuje prethodnu i novu kružnu zonu kroz koju je prošlo vozilo.
+
+Prijelaz može imati jedan od sljedećih statusa:
+
+"naprijed" – vozilo se kreće pravilnim smjerom kroz sljedeću regiju
+
+"natrag" – vozilo prelazi u prethodnu regiju ciklusa i označava se kao vozilo koje se kreće u krivom smjeru
+
+"preskok" – vozilo je zbog putanje ili praćenja preskočilo jednu regiju; takav slučaj se ne označava automatski kao krivi smjer
+
+"ostalo" – prijelaz koji uključuje R5 ili područje IZVAN i ne koristi se direktno za određivanje krivog smjera
+
+Zone R5 i IZVAN na taj način ne prekidaju logiku praćenja smjera između zona R1–R4.
+
+Ovakav pristup omogućuje korištenje povijesti kretanja pojedinog ID-a umjesto donošenja zaključka samo na temelju njegove trenutne pozicije.
+
+
+REZULTAT:
+
+Test je uspješno obrađen na prvih 15 sekundi videozapisa, odnosno na ukupno 899 frameova.
+
+Dobiveni su sljedeći rezultati:
+
+Ukupan broj detekcija:
+1943
+
+Broj različitih tracker ID-eva:
+23
+
+Broj stabilnih tracker ID-eva:
+17
+
+Broj vozila detektiranih u krivom smjeru:
+0
+
+Broj evidentiranih ulazaka u pojedine zone:
+
+R1: 13
+R2: 6
+R3: 1
+R4: 4
+R5: 10
+IZVAN: 4
+
+Primjeri zabilježenih putanja:
+
+ID 180:
+R1 -> R5 -> R4 -> IZVAN
+
+ID 241:
+R5 -> R2 -> R5 -> R1 -> R5
+
+ID 378:
+R1 -> R5 -> R4 -> R5
+
+Rezultati pokazuju da sustav uspješno zadržava ID vozila tijekom kretanja kroz više zona te evidentira redoslijed zona kroz koje je pojedino vozilo prošlo.
+
+Na korištenom videozapisu nije detektirano nijedno vozilo koje se kretalo u suprotnom smjeru, odnosno broj vozila označenih kao "krivi smjer" iznosio je 0.
+
+
+IZLAZNE DATOTEKE:
+
+Nakon završetka obrade generira se videozapis:
+
+rezultati/kruzni_tok/test08_vozila_i_zone.mp4
+
+Na videozapisu su prikazane definirane zone, detektirana vozila, tracker ID, klasa vozila i povijest posjećenih zona.
+
+Uz videozapis generira se i CSV izvještaj:
+
+rezultati/kruzni_tok/vozila.csv
+
+CSV izvještaj sadrži podatke za svaki pronađeni tracker ID, uključujući klasu, vrijeme prvog i zadnjeg pojavljivanja, broj frameova, stabilnost ID-a, najveću confidence vrijednost, posjećene zone, putanju i status krivog smjera.
+
+
+*CPU I CUDA USPOREDBA:*
+
+Nakon što je funkcionalnost Testa 08 potvrđena, provedeno je dodatno mjerenje vremena obrade kako bi se usporedilo izvršavanje istog programa na procesoru i NVIDIA grafičkoj kartici.
+
+Za oba mjerenja korišten je isti videozapis, isti model, istih 899 frameova te potpuno jednake postavke detekcije.
+
+CPU:
+
+Vrijeme obrade:
+95,53 sekunde
+
+Prosječna brzina obrade:
+približno 9,41 FPS
+
+
+CUDA – NVIDIA GeForce MX450:
+
+Vrijeme obrade:
+46,84 sekunde
+
+Prosječna brzina obrade:
+približno 19,19 FPS
+
+
+Izmjerena vremena pokazuju da je obrada korištenjem CUDA-e bila približno 2,04 puta brža od obrade na CPU-u.
+
+Vrijeme potrebno za obradu istih 899 frameova smanjeno je za približno 51 %.
+
+Važno je naglasiti da promjena uređaja za izvršavanje nije zahtijevala promjenu algoritma. U config.py uređaj se određuje automatski:
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+Ako je dostupna kompatibilna NVIDIA grafička kartica koristi se CUDA, a ako nije, program se automatski izvršava na CPU-u.
+
+Dobiveni rezultati detekcije i praćenja ostali su jednaki, dok je korištenjem GPU-a značajno smanjeno vrijeme obrade.
+
+
+Naredba za pokretanje:
+
+cd kruzni_tok
+python main.py
+
+
+Napomena:
+Test 08 predstavlja objedinjavanje i proširenje funkcionalnosti razvijanih kroz prethodne testove. U ranijim testovima postupno su provjeravani detekcija objekata, praćenje ID-eva, brojanje vozila pomoću virtualnih linija te određivanje pravilnog i suprotnog smjera kretanja.
+
+U ovom testu navedeni koncepti primijenjeni su na složeniji primjer kružnog toka, gdje je potrebno istovremeno detektirati više vozila, zadržati njihove ID-eve, odrediti pripadnost različitim prometnim zonama i pratiti redoslijed njihova kretanja.
+
+Uz pomoć mentora riješeni su ključni problemi početne implementacije, prvenstveno izbor prikladnijeg YOLO OBB modela za snimku iz zračne perspektive, organizacija programskog rješenja i preciznije definiranje zone samog kružnog toka u obliku prstena.
+
+Dodatnim testiranjem potvrđeno je da program uspješno obrađuje videozapis, generira izlazni video i CSV izvještaj te prati putanju pojedinih vozila kroz definirane zone. Uvođenjem CUDA izvršavanja dodatno je ostvareno približno dvostruko ubrzanje obrade.
+
+Test 08 time predstavlja završnu i funkcionalno najpotpuniju cjelinu dosadašnjeg rada na detekciji, praćenju i analizi kretanja vozila.
