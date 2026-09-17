@@ -37,3 +37,6 @@ runs/
 # OSTALO
 # ==========================================
 *.tmp
+
+# Lokalna konfiguracija stvarnog videoizvora
+09_stvarni_videoizvor/local_config.py
