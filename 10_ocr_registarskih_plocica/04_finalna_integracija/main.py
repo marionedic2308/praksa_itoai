@@ -1,6 +1,6 @@
 import cv2
-from datetime import datetime
 from pathlib import Path
+from datetime import datetime
 
 from camera import Kamera
 from config import (
@@ -12,7 +12,6 @@ from config import (
 )
 from tracking import PracenjeVozila
 from detection import DetektorPlocica
-from ocr import OCRRegistracije
 
 
 # ============================================================
@@ -24,27 +23,18 @@ PRAG_NEAKTIVNOSTI = 30
 MIN_SIRINA_VOZILA = 80
 MIN_VISINA_VOZILA = 60
 
-# Ako OCR vrati rezultat s barem ovom pouzdanoscu,
-# rezultat se odmah prihvaca i OCR se za taj ID
-# vise ne izvodi.
-MIN_POUZDANOST_ZAKLJUCAVANJA = 0.40
+# Lokalna mapa u koju se sprema samo jedan najbolji
+# crop registarske plocice za svaki zavrseni ID vozila.
+MAPA_REZULTATA = (
+    Path(__file__).resolve().parent
+    / "rezultati"
+    / "najbolji_cropovi"
+)
 
-# Ako OCR ne uspije, ne pokusava se ponovno odmah
-# u sljedecem obradenom frameu.
-#
-# Time se smanjuje opterecenje CPU-a i omogucava
-# da se vozilo malo priblizi kameri prije novog pokusaja.
-RAZMAK_OCR_POKUSAJA = 5
-
-# Maksimalan broj OCR pokusaja za jedno vozilo.
-MAX_OCR_POKUSAJA = 5
-MAPA_CROPOVA = Path("rezultati") / "cropovi"
-MAPA_CROPOVA.mkdir(parents=True, exist_ok=True)
-
-# Za svaki ID spremamo samo jedan crop.
-# Novi crop zamjenjuje prethodni samo ako je veci,
-# odnosno ako sadrzi vise piksela plocice.
-najbolji_crop_velicina = {}
+MAPA_REZULTATA.mkdir(
+    parents=True,
+    exist_ok=True
+)
 
 
 def prilagodi_prikaz(frame):
@@ -82,22 +72,22 @@ def ogranicenje_bbox(
 
     x1 = max(
         0,
-        min(x1, sirina_framea - 1)
+        min(int(x1), sirina_framea - 1)
     )
 
     y1 = max(
         0,
-        min(y1, visina_framea - 1)
+        min(int(y1), visina_framea - 1)
     )
 
     x2 = max(
         0,
-        min(x2, sirina_framea)
+        min(int(x2), sirina_framea)
     )
 
     y2 = max(
         0,
-        min(y2, visina_framea)
+        min(int(y2), visina_framea)
     )
 
     return x1, y1, x2, y2
@@ -111,6 +101,10 @@ def prosiri_plocicu(
     sirina,
     visina
 ):
+    """
+    Dodaje mali rub oko detektirane registarske plocice
+    kako znakovi ne bi bili odrezani uz rub bounding boxa.
+    """
 
     sirina_boxa = x2 - x1
     visina_boxa = y2 - y1
@@ -155,49 +149,39 @@ def main():
 
     print("=" * 76)
     print(
-        "TEST 10 - FAZA 04 - FINALNA INTEGRACIJA"
+        "TEST 10 - FAZA 04 - IZDVAJANJE REGISTARSKIH PLOCICA"
     )
     print(
-        "VOZILO -> ID -> PLOCICA -> OCR -> REZULTAT"
+        "VOZILO -> BYTETrack ID -> PLOCICA -> NAJBOLJI CROP"
     )
     print("=" * 76)
 
     kamera = None
 
     # ========================================================
-    # OCR STANJE PO ID-u VOZILA
+    # PRIVREMENI PODACI PO ID-u VOZILA
+    # ========================================================
+    #
+    # Cropovi se NE spremaju svaki frame na disk.
+    #
+    # Za svaki ID u memoriji se cuva samo trenutno
+    # najbolji crop. Ako kasnije dobijemo veci crop,
+    # prethodni se zamjenjuje.
+    #
+    # Na disk se zapisuje tek kada vozilo postane
+    # neaktivno.
     # ========================================================
 
-    # Konacni OCR rezultat:
-    #
-    # rezultati_ocr[ID] = {
-    #     "tekst": "...",
-    #     "pouzdanost": 0.85,
-    #     "vrijeme": "...",
-    #     "frame": 123
-    # }
+    najbolji_cropovi = {}
 
-    rezultati_ocr = {}
-
-    # Broj OCR pokusaja za svaki ID.
-    broj_ocr_pokusaja = {}
-
-    # Frame posljednjeg OCR pokusaja.
-    zadnji_ocr_frame = {}
-
-    # Koliko je puta detektor vidio plocicu.
-    broj_detekcija_plocice = {}
-
-    # Zavrseni ID-evi.
     zavrseni_id_evi = set()
 
     # ========================================================
     # STATISTIKA
     # ========================================================
 
-    broj_zavrsenih = 0
-    broj_s_plocicom = 0
-    broj_ocitanih = 0
+    broj_zavrsenih_vozila = 0
+    broj_spremljenih_plocica = 0
 
     try:
 
@@ -221,20 +205,18 @@ def main():
             DetektorPlocica()
         )
 
-        ocr = OCRRegistracije()
-
         print(
-            "[INFO] Finalna integracija pokrenuta."
+            "[INFO] Sustav pokrenut."
         )
 
         print(
-            "[INFO] OCR se izvodi samo dok za "
-            "vozilo nije dobiven prihvatljiv rezultat."
+            "[INFO] Za svaki ID vozila cuva se "
+            "samo najbolji crop plocice."
         )
 
         print(
-            "[INFO] Nakon uspjesnog OCR-a rezultat "
-            "se zakljucava za ID vozila."
+            "[INFO] OCR se NE izvodi tijekom "
+            "obrade videoizvora."
         )
 
         print(
@@ -253,19 +235,23 @@ def main():
                 kamera.procitaj_frame()
             )
 
-            if not uspjeh or frame is None:
+            if (
+                not uspjeh
+                or frame is None
+            ):
                 continue
 
             broj_framea += 1
 
             prikaz = frame.copy()
 
-            visina_framea, sirina_framea = (
-                frame.shape[:2]
-            )
+            (
+                visina_framea,
+                sirina_framea
+            ) = frame.shape[:2]
 
             # =================================================
-            # 1. TRACKING VOZILA
+            # 1. DETEKCIJA I PRACENJE VOZILA
             # =================================================
 
             vozila = pracenje.prati(
@@ -306,6 +292,9 @@ def main():
                     visina_framea
                 )
 
+                # Premala vozila nemaju dovoljno
+                # korisnih detalja za trazenje plocice.
+
                 if (
                     x2 - x1
                     < MIN_SIRINA_VOZILA
@@ -317,6 +306,25 @@ def main():
                     < MIN_VISINA_VOZILA
                 ):
                     continue
+
+                # =================================================
+                # 2. CROP CIJELOG VOZILA
+                # =================================================
+
+                crop_vozila = frame[
+                    y1:y2,
+                    x1:x2
+                ].copy()
+
+                # =================================================
+                # 3. DETEKCIJA REGISTARSKE PLOCICE
+                # =================================================
+
+                plocica = (
+                    detektor_plocica.detektiraj(
+                        crop_vozila
+                    )
+                )
 
                 # =================================================
                 # PRIKAZ VOZILA
@@ -338,7 +346,7 @@ def main():
                     ),
                     (
                         x1,
-                        max(30, y1 - 40)
+                        max(30, y1 - 15)
                     ),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.75,
@@ -347,87 +355,12 @@ def main():
                     cv2.LINE_AA
                 )
 
-                # =================================================
-                # AKO JE OCR VEC USPJESAN:
-                #
-                # NEMA VISE DETEKCIJE PLOCICE NI EASYOCR-a
-                # ZA TAJ ID.
-                # =================================================
-
-                if track_id in rezultati_ocr:
-
-                    rezultat = (
-                        rezultati_ocr[
-                            track_id
-                        ]
-                    )
-
-                    cv2.putText(
-                        prikaz,
-                        (
-                            f"OCR: "
-                            f"{rezultat['tekst']} "
-                            f"({rezultat['pouzdanost']:.2f})"
-                        ),
-                        (
-                            x1,
-                            max(55, y1 - 10)
-                        ),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.70,
-                        (0, 255, 255),
-                        2,
-                        cv2.LINE_AA
-                    )
-
-                    continue
-
-                # =================================================
-                # 2. CROP VOZILA
-                # =================================================
-
-                crop_vozila = frame[
-                    y1:y2,
-                    x1:x2
-                ].copy()
-
-                # =================================================
-                # 3. DETEKCIJA PLOCICE
-                # =================================================
-
-                plocica = (
-                    detektor_plocica.detektiraj(
-                        crop_vozila
-                    )
-                )
-
                 if plocica is None:
-
-                    cv2.putText(
-                        prikaz,
-                        "PLOCICA: nije pronadena",
-                        (
-                            x1,
-                            max(55, y1 - 10)
-                        ),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.60,
-                        (255, 255, 255),
-                        2,
-                        cv2.LINE_AA
-                    )
-
                     continue
 
-                broj_detekcija_plocice[
-                    track_id
-                ] = (
-                    broj_detekcija_plocice.get(
-                        track_id,
-                        0
-                    )
-                    + 1
-                )
+                # =================================================
+                # 4. KOORDINATE PLOCICE
+                # =================================================
 
                 (
                     px1,
@@ -438,9 +371,16 @@ def main():
                     "bbox"
                 ]
 
-                crop_visina, crop_sirina = (
-                    crop_vozila.shape[:2]
+                pouzdanost_plocice = float(
+                    plocica[
+                        "pouzdanost"
+                    ]
                 )
+
+                (
+                    crop_visina,
+                    crop_sirina
+                ) = crop_vozila.shape[:2]
 
                 (
                     px1,
@@ -457,7 +397,7 @@ def main():
                 )
 
                 # =================================================
-                # CRTANJE DETEKTIRANE PLOCICE
+                # 5. PRIKAZ BOUNDING BOXA PLOCICE
                 # =================================================
 
                 global_px1 = (
@@ -490,69 +430,28 @@ def main():
                     3
                 )
 
-                # =================================================
-                # 4. TREBA LI UOPCE POKRENUTI OCR?
-                # =================================================
-
-                pokusaji = (
-                    broj_ocr_pokusaja.get(
-                        track_id,
-                        0
-                    )
+                cv2.putText(
+                    prikaz,
+                    (
+                        "PLOCICA "
+                        f"{pouzdanost_plocice:.2f}"
+                    ),
+                    (
+                        global_px1,
+                        max(
+                            25,
+                            global_py1 - 8
+                        )
+                    ),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.60,
+                    (0, 255, 255),
+                    2,
+                    cv2.LINE_AA
                 )
 
-                if (
-                    pokusaji
-                    >= MAX_OCR_POKUSAJA
-                ):
-
-                    cv2.putText(
-                        prikaz,
-                        "OCR: nema rezultata",
-                        (
-                            x1,
-                            max(55, y1 - 10)
-                        ),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.60,
-                        (0, 165, 255),
-                        2,
-                        cv2.LINE_AA
-                    )
-
-                    continue
-
-                zadnji_pokusaj = (
-                    zadnji_ocr_frame.get(
-                        track_id,
-                        -9999
-                    )
-                )
-
-                if (
-                    broj_framea
-                    - zadnji_pokusaj
-                    < RAZMAK_OCR_POKUSAJA
-                ):
-
-                    cv2.putText(
-                        prikaz,
-                        "OCR: ceka novi pokusaj",
-                        (
-                            x1,
-                            max(55, y1 - 10)
-                        ),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.60,
-                        (255, 255, 255),
-                        2,
-                        cv2.LINE_AA
-                    )
-
-                    continue
-
                 # =================================================
-                # 5. CROP PLOCICE
+                # 6. PROSIRENI CROP PLOCICE
                 # =================================================
 
                 (
@@ -569,92 +468,87 @@ def main():
                     crop_visina
                 )
 
-                crop_plocice = crop_vozila[
-                    oy1:oy2,
-                    ox1:ox2
-                ].copy()
-
-                # =================================================
-                # 6. JEDAN OCR POKUSAJ
-                # =================================================
-
-                broj_ocr_pokusaja[
-                    track_id
-                ] = (
-                    pokusaji + 1
+                crop_plocice = (
+                    crop_vozila[
+                        oy1:oy2,
+                        ox1:ox2
+                    ].copy()
                 )
-
-                zadnji_ocr_frame[
-                    track_id
-                ] = broj_framea
-
-                kandidati = ocr.procitaj(
-                    crop_plocice
-                )
-
-                if not kandidati:
-
-                    print(
-                        f"[OCR] ID {track_id} | "
-                        f"pokusaj "
-                        f"{broj_ocr_pokusaja[track_id]} | "
-                        f"bez rezultata"
-                    )
-
-                    continue
-
-                najbolji = kandidati[0]
-
-                tekst = najbolji[
-                    "tekst"
-                ]
-
-                pouzdanost = najbolji[
-                    "pouzdanost"
-                ]
-
-                print(
-                    f"[OCR] ID {track_id} | "
-                    f"pokusaj "
-                    f"{broj_ocr_pokusaja[track_id]} | "
-                    f"kandidat | "
-                    f"conf={pouzdanost:.2f}"
-                )
-
-                # =================================================
-                # 7. ZAKLJUCAVANJE OCR REZULTATA
-                # =================================================
 
                 if (
-                    pouzdanost
-                    >= MIN_POUZDANOST_ZAKLJUCAVANJA
+                    crop_plocice is None
+                    or crop_plocice.size == 0
+                ):
+                    continue
+
+                (
+                    visina_plocice,
+                    sirina_plocice
+                ) = crop_plocice.shape[:2]
+
+                # =================================================
+                # 7. PROCJENA KVALITETE CROPA
+                # =================================================
+                #
+                # Za sada kao jednostavan i jasan kriterij
+                # koristimo broj piksela cropa.
+                #
+                # Veci crop u pravilu znaci da je vozilo
+                # blize kameri i da plocica sadrzi vise
+                # detalja korisnih za naknadni OCR.
+                # =================================================
+
+                velicina_cropa = (
+                    sirina_plocice
+                    * visina_plocice
+                )
+
+                prethodni = (
+                    najbolji_cropovi.get(
+                        track_id
+                    )
+                )
+
+                treba_zamijeniti = False
+
+                if prethodni is None:
+
+                    treba_zamijeniti = True
+
+                elif (
+                    velicina_cropa
+                    > prethodni[
+                        "velicina"
+                    ]
                 ):
 
-                    vrijeme = (
-                        datetime.now()
-                        .strftime(
-                            "%Y-%m-%d %H:%M:%S.%f"
-                        )[:-3]
-                    )
+                    treba_zamijeniti = True
 
-                    rezultati_ocr[
+                if treba_zamijeniti:
+
+                    najbolji_cropovi[
                         track_id
                     ] = {
-                        "tekst": tekst,
-                        "pouzdanost": pouzdanost,
-                        "vrijeme": vrijeme,
-                        "frame": broj_framea
+                        "crop": crop_plocice,
+                        "velicina": velicina_cropa,
+                        "sirina": sirina_plocice,
+                        "visina": visina_plocice,
+                        "pouzdanost": (
+                            pouzdanost_plocice
+                        ),
+                        "klasa": stabilna_klasa,
+                        "frame": broj_framea,
+                        "vrijeme": (
+                            datetime.now()
+                            .strftime(
+                                "%Y-%m-%d "
+                                "%H:%M:%S.%f"
+                            )[:-3]
+                        )
                     }
 
-                    print(
-                        f"[OCR USPJESAN] "
-                        f"ID {track_id} | "
-                        f"rezultat zakljucan | "
-                        f"conf={pouzdanost:.2f}"
-                    )
-
             # =================================================
-            # 8. ZAVRSENA / NEAKTIVNA VOZILA
+            # 8. PROVJERA ZAVRSENIH VOZILA
             # =================================================
 
             neaktivni = (
@@ -676,41 +570,31 @@ def main():
                     track_id
                 )
 
-                broj_zavrsenih += 1
+                broj_zavrsenih_vozila += 1
 
-                klasa = (
+                stabilna_klasa = (
                     pracenje
                     .dohvati_stabilnu_klasu(
                         track_id
                     )
                 )
 
-                broj_frameova = (
+                broj_pracenih_frameova = (
                     pracenje
                     .dohvati_broj_frameova(
                         track_id
                     )
                 )
 
-                detekcije = (
-                    broj_detekcija_plocice.get(
-                        track_id,
-                        0
+                podatak = (
+                    najbolji_cropovi.get(
+                        track_id
                     )
                 )
-
-                pokusaji = (
-                    broj_ocr_pokusaja.get(
-                        track_id,
-                        0
-                    )
-                )
-
-                if detekcije > 0:
-                    broj_s_plocicom += 1
 
                 print()
                 print("-" * 76)
+
                 print(
                     "[VOZILO ZAVRSENO]"
                 )
@@ -722,87 +606,88 @@ def main():
 
                 print(
                     f"Klasa:                "
-                    f"{klasa}"
+                    f"{stabilna_klasa}"
                 )
 
                 print(
                     f"Praceno frameova:     "
-                    f"{broj_frameova}"
+                    f"{broj_pracenih_frameova}"
                 )
 
-                print(
-                    f"Detekcija plocice:    "
-                    f"{detekcije}"
-                )
+                if podatak is not None:
 
-                print(
-                    f"OCR pokusaja:         "
-                    f"{pokusaji}"
-                )
+                    # =============================================
+                    # 9. SPREMANJE SAMO JEDNOG NAJBOLJEG CROPA
+                    # =============================================
 
-                if (
-                    track_id
-                    in rezultati_ocr
-                ):
-
-                    rezultat = (
-                        rezultati_ocr[
-                            track_id
-                        ]
+                    naziv_datoteke = (
+                        f"ID_{track_id:04d}_"
+                        f"{stabilna_klasa}.jpg"
                     )
 
-                    broj_ocitanih += 1
-
-                    print(
-                        f"Registracija:         "
-                        f"{rezultat['tekst']}"
+                    putanja = (
+                        MAPA_REZULTATA
+                        / naziv_datoteke
                     )
 
-                    print(
-                        f"OCR pouzdanost:       "
-                        f"{rezultat['pouzdanost']:.2f}"
+                    uspjesno_spremljeno = (
+                        cv2.imwrite(
+                            str(putanja),
+                            podatak[
+                                "crop"
+                            ]
+                        )
                     )
 
-                    print(
-                        f"Vrijeme ocitanja:     "
-                        f"{rezultat['vrijeme']}"
-                    )
+                    if uspjesno_spremljeno:
 
-                    print(
-                        "Status:               "
-                        "OCR USPJESAN"
-                    )
+                        broj_spremljenih_plocica += 1
+
+                        print(
+                            "Plocica:              "
+                            "SPREMLJENA"
+                        )
+
+                        print(
+                            f"Crop:                 "
+                            f"{podatak['sirina']}x"
+                            f"{podatak['visina']}"
+                        )
+
+                        print(
+                            f"Confidence detekcije: "
+                            f"{podatak['pouzdanost']:.2f}"
+                        )
+
+                        print(
+                            f"Frame najboljeg cropa:"
+                            f" {podatak['frame']}"
+                        )
+
+                        print(
+                            f"Datoteka:             "
+                            f"{naziv_datoteke}"
+                        )
+
+                    else:
+
+                        print(
+                            "Plocica:              "
+                            "GRESKA PRI SPREMANJU"
+                        )
 
                 else:
 
                     print(
-                        "Registracija:         "
-                        "NIJE OCITANA"
+                        "Plocica:              "
+                        "NIJE PRONADENA"
                     )
 
-                    print(
-                        "Status:               "
-                        "OCR NIJE USPJESAN"
-                    )
+                # =============================================
+                # CISCENJE MEMORIJE ZAVRSENOG ID-a
+                # =============================================
 
-                # Ciscenje podataka zavrsenog ID-a.
-
-                rezultati_ocr.pop(
-                    track_id,
-                    None
-                )
-
-                broj_ocr_pokusaja.pop(
-                    track_id,
-                    None
-                )
-
-                zadnji_ocr_frame.pop(
-                    track_id,
-                    None
-                )
-
-                broj_detekcija_plocice.pop(
+                najbolji_cropovi.pop(
                     track_id,
                     None
                 )
@@ -812,12 +697,15 @@ def main():
                 )
 
             # =================================================
-            # 9. HUD
+            # 10. HUD
             # =================================================
 
             cv2.putText(
                 prikaz,
-                "TEST 10 - FINALNA INTEGRACIJA",
+                (
+                    "TEST 10 - IZDVAJANJE "
+                    "REGISTARSKIH PLOCICA"
+                ),
                 (30, 150),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.90,
@@ -831,8 +719,9 @@ def main():
                 (
                     f"Frame: {broj_framea} | "
                     f"Zavrsena vozila: "
-                    f"{broj_zavrsenih} | "
-                    f"OCR: {broj_ocitanih}"
+                    f"{broj_zavrsenih_vozila} | "
+                    f"Spremljene plocice: "
+                    f"{broj_spremljenih_plocica}"
                 ),
                 (30, 190),
                 cv2.FONT_HERSHEY_SIMPLEX,
@@ -843,7 +732,7 @@ def main():
             )
 
             # =================================================
-            # 10. PRIKAZ
+            # 11. PRIKAZ
             # =================================================
 
             if PRIKAZ_VIDEA:
@@ -890,29 +779,33 @@ def main():
 
         print()
         print("=" * 76)
+
         print(
             "ZAVRSNA STATISTIKA"
         )
+
         print("=" * 76)
 
         print(
             f"Zavrsena vozila:        "
-            f"{broj_zavrsenih}"
+            f"{broj_zavrsenih_vozila}"
         )
 
         print(
-            f"Pronadena plocica:       "
-            f"{broj_s_plocicom}"
+            f"Spremljene plocice:     "
+            f"{broj_spremljenih_plocica}"
         )
 
         print(
-            f"Uspjesno OCR ocitanje:   "
-            f"{broj_ocitanih}"
+            f"Mapa rezultata:         "
+            f"{MAPA_REZULTATA}"
         )
 
         print("=" * 76)
+
         print(
-            "[INFO] Finalna integracija zavrsena."
+            "[INFO] Live izdvajanje "
+            "registarskih plocica zavrseno."
         )
 
 

@@ -39,7 +39,7 @@ runs/
 *.tmp
 
 # Lokalna konfiguracija stvarnog videoizvora
-09_stvarni_videoizvor/local_config.py
+09_stvarni_videoizvor/local_config.pygit status
 
 
 # Test 10 - lokalni i osjetljivi rezultati
