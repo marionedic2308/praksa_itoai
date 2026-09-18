@@ -40,3 +40,9 @@ runs/
 
 # Lokalna konfiguracija stvarnog videoizvora
 09_stvarni_videoizvor/local_config.py
+
+
+# Test 10 - lokalni i osjetljivi rezultati
+10_ocr_registarskih_plocica/**/rezultati/
+10_ocr_registarskih_plocica/**/__pycache__/
+10_ocr_registarskih_plocica/privatni_rezultati/
