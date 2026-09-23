@@ -39,10 +39,20 @@ runs/
 *.tmp
 
 # Lokalna konfiguracija stvarnog videoizvora
-09_stvarni_videoizvor/local_config.pygit status
+09_stvarni_videoizvor/local_config.py
 
 
 # Test 10 - lokalni i osjetljivi rezultati
 10_ocr_registarskih_plocica/**/rezultati/
 10_ocr_registarskih_plocica/**/__pycache__/
 10_ocr_registarskih_plocica/privatni_rezultati/
+
+# Privatne konfiguracije
+**/local_config.py
+
+# Stare verzije i rezervni modeli
+**/STARE_VERZIJE/
+**/BACKUP_MODELI/
+
+# Rezultati Testa 09 - lokalne kopije
+09_stvarni_videoizvor/**/*_ORIGINAL.csv

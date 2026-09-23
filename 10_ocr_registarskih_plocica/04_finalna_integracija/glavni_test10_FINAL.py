@@ -1,4 +1,7 @@
 import cv2
+import subprocess
+import sys
+import math
 from pathlib import Path
 from datetime import datetime
 
@@ -19,6 +22,11 @@ from detection import DetektorPlocica
 # ============================================================
 
 PRAG_NEAKTIVNOSTI = 30
+MIN_SIRINA_PLOCICE = 65
+MIN_VISINA_PLOCICE = 17
+MIN_POUZDANOST_PLOCICE = 0.45
+MIN_OMJER_PLOCICE = 1.8
+MAX_OMJER_PLOCICE = 6.8
 
 MIN_SIRINA_VOZILA = 80
 MIN_VISINA_VOZILA = 60
@@ -29,6 +37,7 @@ MAPA_REZULTATA = (
     Path(__file__).resolve().parent
     / "rezultati"
     / "najbolji_cropovi"
+    / datetime.now().strftime("test_%Y%m%d_%H%M%S_%f")
 )
 
 MAPA_REZULTATA.mkdir(
@@ -157,6 +166,7 @@ def main():
     print("=" * 76)
 
     kamera = None
+    zavrsetak_na_q = False
 
     # ========================================================
     # PRIVREMENI PODACI PO ID-u VOZILA
@@ -486,43 +496,26 @@ def main():
                     sirina_plocice
                 ) = crop_plocice.shape[:2]
 
-                # =================================================
-                # 7. PROCJENA KVALITETE CROPA
-                # =================================================
-                #
-                # Za sada kao jednostavan i jasan kriterij
-                # koristimo broj piksela cropa.
-                #
-                # Veci crop u pravilu znaci da je vozilo
-                # blize kameri i da plocica sadrzi vise
-                # detalja korisnih za naknadni OCR.
-                # =================================================
+                # Odbaci presitne, preuske/previsoke i nepouzdane detekcije.
+                omjer = sirina_plocice / max(1, visina_plocice)
+                if (sirina_plocice < MIN_SIRINA_PLOCICE
+                    or visina_plocice < MIN_VISINA_PLOCICE
+                    or not MIN_OMJER_PLOCICE <= omjer <= MAX_OMJER_PLOCICE
+                    or pouzdanost_plocice < MIN_POUZDANOST_PLOCICE):
+                    continue
 
-                velicina_cropa = (
-                    sirina_plocice
-                    * visina_plocice
+                # Prednost: pouzdanost + citljivost + ostrina, a ne samo povrsina.
+                siva = cv2.cvtColor(crop_plocice, cv2.COLOR_BGR2GRAY)
+                ostrina = cv2.Laplacian(siva, cv2.CV_64F).var()
+                velicina_cropa = sirina_plocice * visina_plocice
+                rezultat_kvalitete = (
+                    2.0 * pouzdanost_plocice
+                    + 0.55 * math.log1p(sirina_plocice) / math.log(300)
+                    + 0.15 * min(ostrina / 200.0, 1.0)
                 )
-
-                prethodni = (
-                    najbolji_cropovi.get(
-                        track_id
-                    )
-                )
-
-                treba_zamijeniti = False
-
-                if prethodni is None:
-
-                    treba_zamijeniti = True
-
-                elif (
-                    velicina_cropa
-                    > prethodni[
-                        "velicina"
-                    ]
-                ):
-
-                    treba_zamijeniti = True
+                prethodni = najbolji_cropovi.get(track_id)
+                treba_zamijeniti = (prethodni is None or
+                                    rezultat_kvalitete > prethodni["kvaliteta"])
 
                 if treba_zamijeniti:
 
@@ -531,6 +524,7 @@ def main():
                     ] = {
                         "crop": crop_plocice,
                         "velicina": velicina_cropa,
+                        "kvaliteta": rezultat_kvalitete,
                         "sirina": sirina_plocice,
                         "visina": visina_plocice,
                         "pouzdanost": (
@@ -753,6 +747,7 @@ def main():
                     & 0xFF
                     == ord("q")
                 ):
+                    zavrsetak_na_q = True
                     break
 
     except KeyboardInterrupt:
@@ -776,6 +771,20 @@ def main():
             cv2.destroyAllWindows()
         except cv2.error:
             pass
+
+        # Na Q spremi i vozila koja su jos aktivna, prije pokretanja OCR-a.
+        if zavrsetak_na_q:
+            for track_id, podatak in list(najbolji_cropovi.items()):
+                if track_id in zavrseni_id_evi:
+                    continue
+                naziv = f"ID_{track_id:04d}_{podatak['klasa']}.jpg"
+                putanja = MAPA_REZULTATA / naziv
+                if cv2.imwrite(str(putanja), podatak["crop"]):
+                    broj_spremljenih_plocica += 1
+                    print(f"[SPREMLJENO PRI IZLASKU] ID {track_id}: {naziv}")
+                else:
+                    print(f"[UPOZORENJE] Nije spremljen crop ID {track_id}")
+            najbolji_cropovi.clear()
 
         print()
         print("=" * 76)
@@ -807,6 +816,36 @@ def main():
             "[INFO] Live izdvajanje "
             "registarskih plocica zavrseno."
         )
+
+        if zavrsetak_na_q:
+            ocr_skripta = Path(__file__).resolve().parent / "offline_ocr_zavrsni_V2.py"
+            if not ocr_skripta.is_file():
+                print(f"[GRESKA] OCR skripta nije pronadena: {ocr_skripta}")
+            else:
+                print("\n[INFO] Automatski pokrecem OCR i izradu CSV izvjestaja...")
+                print("[INFO] OCR obraduje samo slike iz ovog pokretanja.")
+                try:
+                    rezultat = subprocess.run([sys.executable, str(ocr_skripta),
+                                              "--crop-dir", str(MAPA_REZULTATA),
+                                              "--run-id", MAPA_REZULTATA.name],
+                                             cwd=str(ocr_skripta.parent), check=False)
+                    if rezultat.returncode == 0:
+                        print("[OK] OCR postupak zavrsen. Provjeri CSV izvjestaje.")
+                        excel_skripta = Path(__file__).resolve().parent / "izradi_excel_izvjestaje.py"
+                        if excel_skripta.is_file():
+                            print("[INFO] Izrada uredjenih Excel izvjestaja...")
+                            excel_rezultat = subprocess.run(
+                                [sys.executable, str(excel_skripta), "--run-id", MAPA_REZULTATA.name],
+                                cwd=str(excel_skripta.parent), check=False
+                            )
+                            if excel_rezultat.returncode != 0:
+                                print("[UPOZORENJE] Excel nije izradjen. CSV izvjestaji su sacuvani.")
+                        else:
+                            print("[UPOZORENJE] Nije pronadjena skripta za Excel izvjestaje.")
+                    else:
+                        print(f"[GRESKA] OCR zavrsio s kodom {rezultat.returncode}.")
+                except OSError as greska:
+                    print(f"[GRESKA] OCR se nije mogao pokrenuti: {greska}")
 
 
 if __name__ == "__main__":
