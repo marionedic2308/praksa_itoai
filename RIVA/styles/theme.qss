@@ -1,0 +1,159 @@
+
+/* ==================================================
+   RIVA - GLOBALNA TEMA APLIKACIJE
+   Tamnoplava podloga i tirkizni naglasci
+   ================================================== */
+
+/* Osnovni izgled aplikacije */
+QWidget {
+    background-color: #0B1220;
+    color: #EAF2FA;
+    font-family: "Segoe UI";
+    font-size: 13px;
+}
+
+/* Naslovne i informacijske oznake */
+QLabel {
+    background: transparent;
+    color: #EAF2FA;
+}
+
+/* Bočni navigacijski izbornik */
+QFrame#sidebar {
+    background-color: #101D30;
+    border-right: 1px solid #24354B;
+}
+
+/* Kartice na nadzornoj ploči */
+QFrame#statCard,
+QFrame#contentCard {
+    background-color: #152238;
+    border: 1px solid #2A3D55;
+    border-radius: 16px;
+}
+
+/* Navigacijski gumbi */
+QPushButton#navButton {
+    background-color: transparent;
+    color: #AFC1D5;
+    border: none;
+    border-radius: 10px;
+    padding: 13px;
+    text-align: left;
+}
+
+QPushButton#navButton:hover {
+    background-color: #20354A;
+    color: #FFFFFF;
+}
+
+/* Trenutačno odabrana stavka izbornika */
+QPushButton#navButton:checked {
+    background-color: #194B57;
+    color: #5DD9D0;
+    font-weight: bold;
+}
+
+/* Glavni akcijski gumbi */
+QPushButton#primaryButton {
+    background-color: #45D6CD;
+    color: #081522;
+    border: none;
+    border-radius: 10px;
+    padding: 12px 18px;
+    font-weight: bold;
+}
+
+QPushButton#primaryButton:hover {
+    background-color: #75E8E0;
+}
+
+/* Sekundarni akcijski gumbi */
+QPushButton#secondaryButton {
+    background-color: #1C3046;
+    color: #DDEAF5;
+    border: 1px solid #344960;
+    border-radius: 10px;
+    padding: 12px 18px;
+}
+
+QPushButton#secondaryButton:hover {
+    background-color: #29435C;
+}
+
+/* Polja za unos */
+QLineEdit {
+    background-color: #0D192A;
+    color: #FFFFFF;
+    border: 1px solid #344960;
+    border-radius: 10px;
+    padding: 11px;
+}
+
+QLineEdit:focus {
+    border: 2px solid #45D6CD;
+}
+
+/* Tablice s rezultatima i audit logovima */
+QTableWidget {
+    background-color: #152238;
+    alternate-background-color: #192A40;
+    color: #EAF2FA;
+    border: 1px solid #2A3D55;
+    border-radius: 10px;
+    gridline-color: #2A3D55;
+    selection-background-color: #194B57;
+}
+
+QHeaderView::section {
+    background-color: #1C3046;
+    color: #AFC1D5;
+    border: none;
+    padding: 10px;
+    font-weight: bold;
+}
+
+/* Padajući izbornici */
+QComboBox {
+    background-color: #152238;
+    color: #EAF2FA;
+    border: 1px solid #344960;
+    border-radius: 8px;
+    padding: 9px;
+}
+
+/* Trake za pomicanje */
+QScrollBar:vertical {
+    background: #0B1220;
+    width: 9px;
+}
+
+QScrollBar::handle:vertical {
+    background: #344960;
+    border-radius: 4px;
+    min-height: 25px;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+/* Skočne obavijesti - čitljiv tekst */
+QMessageBox {
+    background-color: #152238;
+}
+
+QMessageBox QLabel {
+    color: #EAF2FA;
+    background: transparent;
+}
+
+QMessageBox QPushButton {
+    background-color: #29435C;
+    color: #FFFFFF;
+    border: 1px solid #456078;
+    border-radius: 6px;
+    padding: 7px 20px;
+    min-width: 70px;
+}

@@ -56,3 +56,34 @@ runs/
 
 # Rezultati Testa 09 - lokalne kopije
 09_stvarni_videoizvor/**/*_ORIGINAL.csv
+
+# ==========================================
+# RIVA - PRIVATNI I LOKALNI PODACI
+# ==========================================
+
+# Korisnicki racuni i baza podataka
+/RIVA/data/auth.json
+/RIVA/data/*.db
+/RIVA/data/*.db-*
+/RIVA/data/*.sqlite*
+/RIVA/data/*.sqlite*-*
+
+# Kalibracije kamera
+/RIVA/data/calibrations/
+
+# Testne kalibracije i slike
+/RIVA/data/test_*.json
+/RIVA/data/*.jpg
+/RIVA/data/*.png
+
+# Lokalni backup aplikacije
+/RIVA/ui/*_backup.py
+
+# Rezultati analiza i izvjestaji
+/RIVA/data/sessions/
+/RIVA/data/reports/
+/RIVA/data/exports/
+
+# Dodatni privatni podaci
+/RIVA/data/private/
+/RIVA/data/ocr/
