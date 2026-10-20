@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 # RIVA - zasebni moduli aplikacije.
-from core.auth import verify_login
+from core.users import verify_user
 from core.audit import log_event
 from ui.notifications import show_notification
 from ui.main_window import MainWindow
@@ -380,7 +380,7 @@ class LoginWindow(QWidget):
         # USPJEŠNA PRIJAVA
         # --------------------------------------------------
 
-        if verify_login(username, password):
+        if verify_user(username, password):
 
             # Evidentiranje uspješne prijave.
             log_event(

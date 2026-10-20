@@ -1,3 +1,4 @@
+from ui.settings import SettingsPage
 """RIVA - glavni prozor, navigacija, osvježavanje i siguran izlazak."""
 
 from PySide6.QtCore import Qt
@@ -16,9 +17,9 @@ from ui.notifications import show_notification
 class ExitDialog(QDialog):
     """Prilagođena potvrda izlaska u vizualnom stilu RIVA-e."""
 
-    def __init__(self, parent=None, analysis_active=False):
+    def __init__(self, parent=None, analysis_active=False, logout_mode=False):
         super().__init__(parent)
-        self.setWindowTitle("RIVA | Potvrda izlaska")
+        self.setWindowTitle("RIVA | Potvrda odjave" if logout_mode else "RIVA | Potvrda izlaska")
         self.setModal(True)
         self.setWindowFlag(Qt.FramelessWindowHint, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -52,9 +53,9 @@ class ExitDialog(QDialog):
         header.addWidget(icon)
         titles = QVBoxLayout()
         titles.setSpacing(4)
-        heading = QLabel("Izlazak iz RIVA-e")
+        heading = QLabel("Odjava iz sustava" if logout_mode else "Izlazak iz RIVA-e")
         heading.setStyleSheet("color: #FFFFFF; font-size: 21px; font-weight: bold;")
-        subtitle = QLabel("POTVRDA ZATVARANJA APLIKACIJE")
+        subtitle = QLabel("POTVRDA ODJAVE KORISNIKA" if logout_mode else "POTVRDA ZATVARANJA APLIKACIJE")
         subtitle.setStyleSheet("color: #7FA6B9; font-size: 10px; font-weight: bold;")
         titles.addWidget(heading)
         titles.addWidget(subtitle)
@@ -66,11 +67,13 @@ class ExitDialog(QDialog):
         divider.setStyleSheet("background: #304760; border: none;")
         layout.addWidget(divider)
 
-        question = QLabel("Želite li sigurno izaći iz aplikacije?")
+        question = QLabel("Jeste li sigurni da se želite odjaviti iz sustava RIVA?" if logout_mode else "Želite li sigurno izaći iz aplikacije?")
         question.setWordWrap(True)
         question.setStyleSheet("color: #E5F0F8; font-size: 15px; font-weight: bold;")
         layout.addWidget(question)
         details = QLabel(
+            "Trenutni korisnik bit ce odjavljen. Aplikacija ostaje otvorena na zaslonu za prijavu."
+            if logout_mode else
             "LIVE analiza je aktivna. Prije izlaska sustav će je pokušati "
             "uredno zaustaviti i spremiti rezultate."
             if analysis_active else
@@ -93,7 +96,7 @@ class ExitDialog(QDialog):
             QPushButton:hover { background: #31516A; }
         """)
         cancel.clicked.connect(self.reject)
-        exit_button = QPushButton("↪  Izađi")
+        exit_button = QPushButton("Odjavi se" if logout_mode else "↪  Izađi")
         exit_button.setCursor(Qt.PointingHandCursor)
         exit_button.setMinimumSize(122, 42)
         exit_button.setStyleSheet("""
@@ -117,9 +120,101 @@ class MainWindow(QMainWindow):
         self.resize(1400, 850)
         self.setMinimumSize(1100, 700)
 
+        self.setWindowFlags(
+            Qt.Window | Qt.FramelessWindowHint
+        )
+
         root = QWidget()
         self.setCentralWidget(root)
-        main_layout = QHBoxLayout(root)
+
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        titlebar = QFrame()
+        titlebar.setFixedHeight(46)
+        titlebar.setStyleSheet("""
+            QFrame {
+                background: #101D30;
+                border-bottom: 1px solid #294158;
+            }
+        """)
+
+        title_layout = QHBoxLayout(titlebar)
+        title_layout.setContentsMargins(18, 0, 0, 0)
+        title_layout.setSpacing(0)
+
+        app_name = QLabel(chr(0x25C8) + "  RIVA")
+        app_name.setStyleSheet("""
+            color: #37D5C7;
+            font-size: 15px;
+            font-weight: bold;
+            background: transparent;
+            border: none;
+        """)
+        title_layout.addWidget(app_name)
+
+        app_subtitle = QLabel("   ROAD INTELLIGENCE & VISION ANALYSIS")
+        app_subtitle.setStyleSheet("""
+            color: #91A6BE;
+            font-size: 10px;
+            background: transparent;
+            border: none;
+        """)
+        title_layout.addWidget(app_subtitle)
+        title_layout.addStretch()
+
+        button_style = """
+            QPushButton {
+                background: transparent;
+                color: #DDEAF5;
+                border: none;
+                border-radius: 0;
+                font-size: 17px;
+                padding: 0;
+            }
+            QPushButton:hover {
+                background: #294158;
+            }
+        """
+
+        minimize = QPushButton(chr(0x2212))
+        minimize.setToolTip("Minimiziraj")
+        minimize.setFixedSize(48, 46)
+        minimize.setStyleSheet(button_style)
+        minimize.clicked.connect(self.showMinimized)
+        title_layout.addWidget(minimize)
+
+        maximize = QPushButton(chr(0x25A1))
+        maximize.setToolTip("Maksimiziraj / Vrati")
+        maximize.setFixedSize(48, 46)
+        maximize.setStyleSheet(button_style)
+        maximize.clicked.connect(self.toggle_main_maximize)
+        title_layout.addWidget(maximize)
+
+        close = QPushButton(chr(0x00D7))
+        close.setToolTip("Zatvori RIVA-u")
+        close.setFixedSize(48, 46)
+        close.setStyleSheet(button_style + """
+            QPushButton:hover {
+                background: #C84D5A;
+                color: white;
+            }
+        """)
+        close.clicked.connect(self.close)
+        title_layout.addWidget(close)
+
+        self.main_titlebar = titlebar
+        self.main_titlebar.mousePressEvent = self.title_mouse_press
+        self.main_titlebar.mouseMoveEvent = self.title_mouse_move
+        self.main_titlebar.mouseDoubleClickEvent = self.title_double_click
+
+        root_layout.addWidget(titlebar)
+
+        body = QWidget()
+        root_layout.addWidget(body, 1)
+
+        main_layout = QHBoxLayout(body)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
@@ -174,8 +269,8 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self.reports)  # 4
         self.pages.addWidget(self.create_placeholder(
             "Aktivnosti sustava", "Modul je pripremljen za implementaciju."))  # 5
-        self.pages.addWidget(self.create_placeholder(
-            "Postavke", "Modul je pripremljen za implementaciju."))  # 6
+        self.settings = SettingsPage(self.username)
+        self.pages.addWidget(self.settings)  # 6
 
         self.dashboard.open_camera.connect(lambda: self.change_page(1))
         self.dashboard.open_analysis.connect(lambda: self.change_page(2))
@@ -214,6 +309,37 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(sidebar)
         main_layout.addWidget(self.pages, 1)
         self.change_page(0)
+
+    def toggle_main_maximize(self):
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+
+    def title_mouse_press(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_position = (
+                event.globalPosition().toPoint()
+                - self.frameGeometry().topLeft()
+            )
+            event.accept()
+
+    def title_mouse_move(self, event):
+        if (
+            event.buttons() & Qt.LeftButton
+            and hasattr(self, "_drag_position")
+            and not self.isMaximized()
+        ):
+            self.move(
+                event.globalPosition().toPoint()
+                - self._drag_position
+            )
+            event.accept()
+
+    def title_double_click(self, event):
+        if event.button() == Qt.LeftButton:
+            self.toggle_main_maximize()
+            event.accept()
 
     def create_placeholder(self, title, description):
         page = QWidget()
@@ -268,12 +394,64 @@ class MainWindow(QMainWindow):
             )
 
     def logout(self):
-        show_notification(
-            self, "Odjava iz sustava", "Odjava će uskoro biti dostupna.", "info"
+        dialog = ExitDialog(
+            self,
+            analysis_active=(
+                self.live_camera.worker is not None
+                and self.live_camera.worker.isRunning()
+            ),
+            logout_mode=True
         )
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        """Sigurna odjava i povratak na prijavu."""
+        from ui.login import LoginWindow
+        from core.audit import log_event
+
+        worker = self.live_camera.worker
+
+        if worker is not None and worker.isRunning():
+            worker.stop()
+
+            if not worker.wait(10000):
+                show_notification(
+                    self,
+                    "Odjava nije moguca",
+                    "LIVE analiza se jos zaustavlja. "
+                    "Pricekajte spremanje rezultata.",
+                    "warning"
+                )
+                return
+
+        try:
+            log_event(
+                event_type="LOGOUT",
+                username=self.username,
+                description="Korisnik se odjavio iz sustava RIVA.",
+                status="SUCCESS"
+            )
+        except Exception as error:
+            show_notification(
+                self,
+                "Odjava nije dovrsena",
+                str(error),
+                "error"
+            )
+            return
+
+        self.login_window = LoginWindow()
+        self.login_window.showMaximized()
+
+        self._logout_in_progress = True
+        self.close()
 
     def closeEvent(self, event):
         """Potvrđuje izlazak i čeka spremanje aktivne LIVE sesije."""
+        if getattr(self, "_logout_in_progress", False):
+            event.accept()
+            return
+
         active_worker = self.live_camera.worker
         is_active = active_worker is not None and active_worker.isRunning()
         dialog = ExitDialog(self, analysis_active=is_active)
