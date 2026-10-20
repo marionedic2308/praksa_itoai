@@ -309,7 +309,7 @@ class DashboardPage(QWidget):
             (
                 "IZVJEŠTAJI",
                 self.reports_value,
-                "Evidencija izvještaja slijedi",
+                "Dostupni prometni izvjestaji",
                 "▤",
                 "#F2BA61"
             )
@@ -960,11 +960,16 @@ class DashboardPage(QWidget):
                 str(stats["total_sessions"])
             )
 
+            self.reports_value.setText(
+                str(stats["total_reports"])
+            )
+
         except Exception:
             # Crtica označava nedostupne podatke.
             self.vehicles_value.setText("—")
             self.ocr_value.setText("—")
             self.sessions_value.setText("—")
+            self.reports_value.setText(chr(8212))
 
         self.load_sessions()
         self.load_activities()

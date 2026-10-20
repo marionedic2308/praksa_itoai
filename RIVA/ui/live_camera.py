@@ -1,14 +1,14 @@
-"""RIVA - video, detekcija, pracenje, kalibracija i brojanje vozila."""
+"""RIVA - LIVE video, RTSP prijava, detekcija, tracking i brojanje."""
 
 import hashlib
 import json
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import cv2
-
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal, QSettings
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
@@ -18,16 +18,45 @@ from PySide6.QtWidgets import (
 from core.vehicle_detector import VehicleDetector
 from core.vehicle_tracker import VehicleTracker
 from core.vehicle_counter import VehicleCounter
+from core.sessions import (create_session, save_session_statistics,
+                           add_vehicle_event, finish_session)
 from ui.line_calibration import LineCalibrationDialog
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CALIBRATION_DIR = PROJECT_ROOT / "data" / "calibrations"
 
 
+def clean_rtsp_source(source):
+    """Uklanja eventualne pristupne podatke iz RTSP adrese."""
+    parts = urlsplit(source)
+    if parts.scheme.lower() != "rtsp":
+        return source
+    host = parts.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if parts.port is not None:
+        host += f":{parts.port}"
+    return urlunsplit((parts.scheme, host, parts.path, parts.query, ""))
+
+
+def rtsp_connection_url(source, username, password):
+    """Sastavlja RTSP URL samo u memoriji, uz kodiranje posebnih znakova."""
+    parts = urlsplit(source)
+    if parts.scheme.lower() != "rtsp" or not parts.hostname:
+        raise ValueError("Neispravna RTSP adresa")
+    host = parts.hostname
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if parts.port is not None:
+        host += f":{parts.port}"
+    if username:
+        host = f"{quote(username, safe='')}:{quote(password, safe='')}@{host}"
+    return urlunsplit((parts.scheme, host, parts.path, parts.query, ""))
+
+
 def calibration_path(source):
-    """Jedinstveni naziv datoteke bez otkrivanja RTSP lozinke."""
-    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:24]
+    """Kalibracija ovisi o adresi kamere, ali nikada o lozinki."""
+    digest = hashlib.sha256(clean_rtsp_source(source).encode("utf-8")).hexdigest()[:24]
     return CALIBRATION_DIR / f"camera_{digest}.json"
 
 
@@ -39,10 +68,7 @@ def load_calibration(source, width=None, height=None):
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data.get("lanes"), list) or not data["lanes"]:
             return None
-        if width is not None and (
-            data.get("frame_width") != width
-            or data.get("frame_height") != height
-        ):
+        if width is not None and (data.get("frame_width") != width or data.get("frame_height") != height):
             return None
         for lane in data["lanes"]:
             for key in ("line_1", "line_2"):
@@ -55,14 +81,12 @@ def load_calibration(source, width=None, height=None):
 
 
 def draw_lanes(frame, lanes):
-    """Crta spremljene linije na originalnoj rezoluciji kadra."""
     colors = [(208, 217, 93), (102, 209, 255), (250, 139, 167), (133, 222, 105)]
     for index, lane in enumerate(lanes):
         color = colors[index % len(colors)]
         for line_key, suffix in (("line_1", "L1"), ("line_2", "L2")):
             a, b = lane[line_key]
-            p1 = (int(a[0]), int(a[1]))
-            p2 = (int(b[0]), int(b[1]))
+            p1, p2 = (int(a[0]), int(a[1])), (int(b[0]), int(b[1]))
             cv2.line(frame, p1, p2, color, 3, cv2.LINE_AA)
             cv2.putText(frame, f"{lane['name']} {suffix}",
                         (p1[0], max(20, p1[1] - 8)),
@@ -77,12 +101,15 @@ class VideoWorker(QThread):
     ai_status_changed = Signal(str)
     detections_changed = Signal(int)
     statistics_changed = Signal(object)
+    session_changed = Signal(str)
 
-    def __init__(self, source, is_file=False, mode=0):
+    def __init__(self, source, connection_source, is_file=False, mode=0, username=None):
         super().__init__()
-        self.source = source
+        self.source = source  # Javna adresa za kalibraciju, bez vjerodajnica.
+        self.connection_source = connection_source  # Privatno, samo u memoriji.
         self.is_file = is_file
         self.mode = mode
+        self.username = username
         self.running = True
         self.paused = False
 
@@ -92,12 +119,12 @@ class VideoWorker(QThread):
 
     def run(self):
         capture = None
+        session_id = None
+        counter = None
+        failure = False
+        reached_eof = False
         try:
-            detector = None
-            tracker = None
-            counter = None
-            lanes = None
-
+            detector = tracker = lanes = None
             if self.mode:
                 self.ai_status_changed.emit("UČITAVANJE MODELA")
                 if self.mode == 1:
@@ -110,9 +137,9 @@ class VideoWorker(QThread):
 
             if not self.running:
                 return
-            capture = cv2.VideoCapture(self.source)
+            capture = cv2.VideoCapture(self.connection_source)
             if not capture.isOpened():
-                raise RuntimeError("Nije moguće otvoriti videoizvor")
+                raise RuntimeError("Videoizvor nije otvoren")
 
             fps = capture.get(cv2.CAP_PROP_FPS)
             if fps <= 0 or fps > 120:
@@ -126,19 +153,36 @@ class VideoWorker(QThread):
                 if self.paused:
                     self.msleep(40)
                     continue
-
                 started = time.monotonic()
                 success, original = capture.read()
                 if not success:
+                    reached_eof = True
                     break
                 frame_index += 1
                 height, width = original.shape[:2]
                 self.raw_frame_ready.emit(original.copy())
 
-                if lanes is None or self.mode == 2 and counter is None:
+                if lanes is None or (self.mode == 2 and counter is None):
                     lanes = load_calibration(self.source, width, height)
                     if self.mode == 2 and lanes:
                         counter = VehicleCounter(lanes)
+                        if self.username:
+                            # Ne spremamo RTSP URL, IP, korisnika kamere ni lozinku.
+                            session = create_session(
+                                username=self.username,
+                                source_type="VIDEO" if self.is_file else "LIVE",
+                                source_name="Lokalni video" if self.is_file else "RTSP kamera",
+                                notes="Statistička analiza (bez OCR-a)",
+                            )
+                            session_id = session["id"]
+                            save_session_statistics(session_id, counter.get_statistics())
+                            self.session_changed.emit(
+                                f"Analiza {session['session_code']} započela je."
+                            )
+                        else:
+                            self.session_changed.emit(
+                                "Brojanje radi, ali spremanje čeka povezivanje prijavljenog korisnika."
+                            )
 
                 output = original.copy()
                 if detector is not None:
@@ -148,10 +192,13 @@ class VideoWorker(QThread):
                     output, vehicles = tracker.track(original)
                     self.detections_changed.emit(len(vehicles))
                     if counter is not None:
-                        # MP4: vrijeme iz indeksa kadra, ne iz brzine AI obrade.
                         timestamp = (start_wall_time + timedelta(seconds=(frame_index - 1) / fps)
                                      if self.is_file else datetime.now().astimezone())
-                        counter.update(vehicles, timestamp=timestamp)
+                        new_events = counter.update(vehicles, timestamp=timestamp)
+                        if session_id is not None and new_events:
+                            for event in new_events:
+                                add_vehicle_event(session_id, event)
+                            save_session_statistics(session_id, counter.get_statistics())
                         inactive = tracker.get_inactive_ids(threshold_frames=30)
                         if inactive:
                             counter.remove_inactive(inactive)
@@ -163,36 +210,56 @@ class VideoWorker(QThread):
 
                 if lanes:
                     draw_lanes(output, lanes)
-
                 rgb = cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
                 h, w, _ = rgb.shape
                 image = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
                 self.frame_ready.emit(image)
-
                 if self.is_file:
                     remaining = frame_interval - (time.monotonic() - started)
                     if remaining > 0:
                         self.msleep(max(1, int(remaining * 1000)))
-
         except Exception as error:
-            # Ne ispisujemo URL, IP adresu ni vjerodajnice.
+            failure = True
+            # Namjerno ne prikazujemo puni URL niti detalje koji bi otkrili lozinku.
             self.error_occurred.emit(f"Obrada nije uspjela: {type(error).__name__}")
         finally:
+            if session_id is not None:
+                try:
+                    final_stats = counter.get_statistics() if counter else {"total_count": 0}
+                    save_session_statistics(session_id, final_stats)
+                    final_status = "FAILED" if failure else (
+                        "COMPLETED" if self.is_file and reached_eof else
+                        "COMPLETED" if not self.running else "INTERRUPTED"
+                    )
+                    finish_session(
+                        session_id, status=final_status,
+                        total_vehicles=int(final_stats.get("total_count", 0))
+                    )
+                    self.session_changed.emit(
+                        f"Sesija #{session_id} spremljena ({final_status})."
+                    )
+                except Exception as db_error:
+                    self.error_occurred.emit(
+                        f"Spremanje sesije nije uspjelo: {type(db_error).__name__}"
+                    )
             if capture is not None:
                 capture.release()
+            self.connection_source = ""
             self.status_changed.emit("ZAUSTAVLJENO")
             self.ai_status_changed.emit("AI ISKLJUČEN")
             self.detections_changed.emit(0)
 
 
 class LiveCameraPage(QWidget):
-    """LIVE preglednik s kalibracijom i prikazom rezultata brojanja."""
+    """LIVE preglednik s RTSP prijavom i kalibracijom."""
 
-    def __init__(self):
+    def __init__(self, username=None):
         super().__init__()
+        self.app_username = username
         self.worker = None
         self.current_image = None
         self.raw_frame = None
+        self.settings = QSettings("RIVA", "Road Intelligence & Vision Analysis")
         self.build_ui()
 
     def build_ui(self):
@@ -216,7 +283,7 @@ class LiveCameraPage(QWidget):
         """)
         main = QVBoxLayout(self)
         main.setContentsMargins(32, 24, 32, 24)
-        main.setSpacing(14)
+        main.setSpacing(12)
 
         title = QLabel("LIVE kamera")
         title.setStyleSheet("font-size: 29px; font-weight: bold; color: white;")
@@ -229,7 +296,7 @@ class LiveCameraPage(QWidget):
         source_card.setObjectName("liveSourceCard")
         source_layout = QVBoxLayout(source_card)
         source_layout.setContentsMargins(18, 15, 18, 15)
-        source_layout.setSpacing(10)
+        source_layout.setSpacing(9)
         source_title = QLabel("VIDEOIZVOR I ANALIZA")
         source_title.setStyleSheet("color: #5DD9D0; font-weight: bold;")
         source_layout.addWidget(source_title)
@@ -239,9 +306,7 @@ class LiveCameraPage(QWidget):
         self.source_selector.addItems(["Lokalni videozapis (MP4)", "RTSP kamera"])
         self.source_selector.currentIndexChanged.connect(self.source_changed)
         self.mode_selector = QComboBox()
-        self.mode_selector.addItems([
-            "Samo video", "YOLO detekcija", "YOLO + ByteTrack + brojanje"
-        ])
+        self.mode_selector.addItems(["Samo video", "YOLO detekcija", "YOLO + ByteTrack + brojanje"])
         row.addWidget(self.source_selector, 1)
         row.addWidget(self.mode_selector, 2)
         source_layout.addLayout(row)
@@ -254,6 +319,22 @@ class LiveCameraPage(QWidget):
         row.addWidget(self.source_input, 1)
         row.addWidget(self.browse_button)
         source_layout.addLayout(row)
+
+        # RTSP pristupni podaci: pamtimo samo korisničko ime.
+        self.credentials_row = QWidget()
+        credentials_layout = QHBoxLayout(self.credentials_row)
+        credentials_layout.setContentsMargins(0, 0, 0, 0)
+        credentials_layout.setSpacing(10)
+        self.username_input = QLineEdit()
+        self.username_input.setPlaceholderText("Korisničko ime kamere")
+        self.username_input.setText(self.settings.value("rtsp_username", "", type=str))
+        self.password_input = QLineEdit()
+        self.password_input.setPlaceholderText("Lozinka kamere (ne sprema se)")
+        self.password_input.setEchoMode(QLineEdit.Password)
+        credentials_layout.addWidget(self.username_input)
+        credentials_layout.addWidget(self.password_input)
+        source_layout.addWidget(self.credentials_row)
+        self.credentials_row.setVisible(False)
 
         row = QHBoxLayout()
         self.calibration_button = QPushButton("✎  Kalibriraj linije")
@@ -281,7 +362,7 @@ class LiveCameraPage(QWidget):
 
         self.video_label = QLabel("◉\n\nČeka se povezivanje videoizvora")
         self.video_label.setAlignment(Qt.AlignCenter)
-        self.video_label.setMinimumHeight(240)
+        self.video_label.setMinimumHeight(220)
         self.video_label.setStyleSheet("""
             background: #0B1525; border: 1px dashed #35516B;
             border-radius: 12px; color: #91A6BE; font-size: 15px;
@@ -336,8 +417,10 @@ class LiveCameraPage(QWidget):
         self.calibration_status.setText("Kalibracija: nije provjerena")
         is_file = self.source_selector.currentIndex() == 0
         self.browse_button.setEnabled(is_file)
+        self.credentials_row.setVisible(not is_file)
         self.source_input.setPlaceholderText(
-            "Odaberi lokalni videozapis..." if is_file else "RTSP adresa kamere"
+            "Odaberi lokalni videozapis..." if is_file
+            else "rtsp://IP:554/Streaming/Channels/101"
         )
 
     def browse_video(self):
@@ -350,29 +433,43 @@ class LiveCameraPage(QWidget):
             self.raw_frame = None
             self.calibration_status.setText("Kalibracija: nije provjerena")
 
-    def calibrate(self):
+    def get_connection_source(self):
+        """Provjerava izvor i sastavlja privatnu RTSP adresu bez spremanja."""
         source = self.source_input.text().strip()
         if not source:
-            QMessageBox.warning(self, "RIVA", "Najprije odaberi videoizvor.")
-            return
+            raise ValueError("Najprije odaberi videoizvor.")
         is_file = self.source_selector.currentIndex() == 0
-        if is_file and not Path(source).is_file():
-            QMessageBox.warning(self, "RIVA", "Video datoteka ne postoji.")
+        if is_file:
+            if not Path(source).is_file():
+                raise ValueError("Odabrana video datoteka ne postoji.")
+            return source, source, True
+        if urlsplit(source).username or urlsplit(source).password:
+            raise ValueError("U RTSP adresi nemoj unositi lozinku. Koristi polja ispod.")
+        username = self.username_input.text().strip()
+        password = self.password_input.text()
+        if not username or not password:
+            raise ValueError("Unesi korisničko ime i lozinku kamere.")
+        self.settings.setValue("rtsp_username", username)
+        return source, rtsp_connection_url(source, username, password), False
+
+    def calibrate(self):
+        try:
+            source, connection_source, is_file = self.get_connection_source()
+        except ValueError as error:
+            QMessageBox.warning(self, "RIVA", str(error))
             return
 
         if self.worker is not None:
             if self.raw_frame is None:
                 QMessageBox.information(self, "RIVA", "Pričekaj prvi kadar kamere.")
                 return
-            # Za kalibraciju tijekom rada zamrznemo obradu.
             self.worker.paused = True
             frame = self.raw_frame.copy()
         else:
-            # RTSP otvaranje može potrajati; preporučeno kalibrirati tijekom prikaza.
-            capture = cv2.VideoCapture(source)
+            capture = cv2.VideoCapture(connection_source)
             if not capture.isOpened():
                 capture.release()
-                QMessageBox.warning(self, "RIVA", "Videoizvor nije dostupan.")
+                QMessageBox.warning(self, "RIVA", "Videoizvor nije dostupan. Provjeri prijavu.")
                 return
             success, frame = capture.read()
             capture.release()
@@ -389,29 +486,28 @@ class LiveCameraPage(QWidget):
                     f"Kalibracija spremljena: {len(dialog.lanes)} traka"
                 )
                 self.info_label.setText(
-                    "Linije spremljene. Za primjenu nove kalibracije zaustavi "
-                    "i ponovno pokreni analizu."
+                    "Linije spremljene. Za primjenu zaustavi i ponovno pokreni analizu."
                 )
         finally:
             if self.worker is not None:
                 self.worker.paused = False
 
     def start_video(self):
-        source = self.source_input.text().strip()
-        if not source:
-            QMessageBox.warning(self, "RIVA", "Najprije odaberi videoizvor.")
-            return
         if self.worker is not None:
             return
-        is_file = self.source_selector.currentIndex() == 0
-        if is_file and not Path(source).is_file():
-            QMessageBox.warning(self, "RIVA", "Odabrana video datoteka ne postoji.")
+        try:
+            source, connection_source, is_file = self.get_connection_source()
+        except ValueError as error:
+            QMessageBox.warning(self, "RIVA", str(error))
             return
 
         self.current_image = None
         self.raw_frame = None
         self.reset_statistics()
-        self.worker = VideoWorker(source, is_file, self.mode_selector.currentIndex())
+        self.worker = VideoWorker(
+            source, connection_source, is_file, self.mode_selector.currentIndex(),
+            username=self.app_username
+        )
         self.worker.frame_ready.connect(self.update_frame)
         self.worker.raw_frame_ready.connect(self.receive_raw_frame)
         self.worker.status_changed.connect(self.update_status)
@@ -419,12 +515,15 @@ class LiveCameraPage(QWidget):
         self.worker.ai_status_changed.connect(self.update_ai_status)
         self.worker.detections_changed.connect(self.update_detections)
         self.worker.statistics_changed.connect(self.update_statistics)
+        self.worker.session_changed.connect(self.update_session_info)
         self.worker.finished.connect(self.video_finished)
 
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.source_selector.setEnabled(False)
         self.source_input.setEnabled(False)
+        self.username_input.setEnabled(False)
+        self.password_input.setEnabled(False)
         self.browse_button.setEnabled(False)
         self.mode_selector.setEnabled(False)
         self.update_status("POVEZIVANJE")
@@ -473,6 +572,9 @@ class LiveCameraPage(QWidget):
             if counts else "Po trakama: —"
         )
 
+    def update_session_info(self, message):
+        self.info_label.setText(message)
+
     def stop_video(self):
         if self.worker is not None:
             self.worker.stop()
@@ -485,6 +587,8 @@ class LiveCameraPage(QWidget):
         self.stop_button.setEnabled(False)
         self.source_selector.setEnabled(True)
         self.source_input.setEnabled(True)
+        self.username_input.setEnabled(True)
+        self.password_input.setEnabled(True)
         self.mode_selector.setEnabled(True)
         self.browse_button.setEnabled(self.source_selector.currentIndex() == 0)
         self.update_status("OFFLINE")

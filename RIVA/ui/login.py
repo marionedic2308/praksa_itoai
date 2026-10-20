@@ -1,5 +1,5 @@
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPoint
 from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
@@ -38,10 +38,86 @@ class LoginWindow(QWidget):
 
         self.setStyleSheet("background-color: #0B1220;")
 
-        # Glavni vodoravni raspored.
-        main_layout = QHBoxLayout(self)
+        # Vlastita RIVA naslovna traka.
+        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        titlebar = QWidget()
+        titlebar.setFixedHeight(46)
+        titlebar.setObjectName("rivaTitlebar")
+        titlebar.setStyleSheet('''
+            QWidget#rivaTitlebar {
+                background-color: #101D30;
+                border-bottom: 1px solid #294158;
+            }
+            QLabel {
+                background: transparent;
+                border: none;
+            }
+            QPushButton {
+                background: transparent;
+                color: #DCEBF7;
+                border: none;
+                font-size: 16px;
+            }
+            QPushButton:hover {
+                background: #294158;
+            }
+            QPushButton#closeButton:hover {
+                background: #C9414C;
+                color: white;
+            }
+        ''')
+
+        bar = QHBoxLayout(titlebar)
+        bar.setContentsMargins(18, 0, 0, 0)
+        bar.setSpacing(0)
+
+        brand = QLabel("RIVA")
+        brand.setStyleSheet(
+            "color:#45D6CD; font-size:15px; font-weight:bold;"
+        )
+
+        caption = QLabel("  |  Prijava u sustav")
+        caption.setStyleSheet(
+            "color:#91A6BE; font-size:12px;"
+        )
+
+        bar.addWidget(brand)
+        bar.addWidget(caption)
+        bar.addStretch()
+
+        minimize = QPushButton(chr(0x2212))
+        maximize = QPushButton(chr(0x25A1))
+        close = QPushButton(chr(0x00D7))
+        close.setObjectName("closeButton")
+
+        for button in (minimize, maximize, close):
+            button.setFixedSize(48, 46)
+            button.setCursor(Qt.PointingHandCursor)
+
+        minimize.clicked.connect(self.showMinimized)
+        maximize.clicked.connect(self.toggle_maximize)
+        close.clicked.connect(self.close)
+
+        bar.addWidget(minimize)
+        bar.addWidget(maximize)
+        bar.addWidget(close)
+
+        self.titlebar = titlebar
+        root.addWidget(titlebar)
+
+        # Postojeci sadrzaj prijave ostaje nepromijenjen.
+        content = QWidget()
+        main_layout = QHBoxLayout(content)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
+        root.addWidget(content, 1)
+
+        self._drag_position = None
 
         # --------------------------------------------------
         # LIJEVA STRANA - IDENTITET SUSTAVA RIVA
@@ -240,6 +316,38 @@ class LoginWindow(QWidget):
         # Početni fokus na korisničko ime.
         self.username.setFocus()
 
+
+    def toggle_maximize(self):
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            if event.position().y() <= 46:
+                self._drag_position = (
+                    event.globalPosition().toPoint()
+                    - self.frameGeometry().topLeft()
+                )
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (
+            self._drag_position is not None
+            and event.buttons() & Qt.LeftButton
+            and not self.isMaximized()
+        ):
+            self.move(
+                event.globalPosition().toPoint()
+                - self._drag_position
+            )
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_position = None
+        super().mouseReleaseEvent(event)
+
     # --------------------------------------------------
     # AUTENTIFIKACIJA KORISNIKA
     # --------------------------------------------------
@@ -296,7 +404,7 @@ class LoginWindow(QWidget):
             # Otvaranje glavnog prozora aplikacije.
             # Referencu čuvamo kako se prozor ne bi zatvorio.
             self.main_window = MainWindow(username)
-            self.main_window.show()
+            self.main_window.showMaximized()
 
             # Zatvaranje zaslona za prijavu.
             self.close()
