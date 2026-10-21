@@ -1,124 +1,213 @@
+
 import os
 import re
 import sqlite3
 from pathlib import Path
 
+import cv2
+
 from core.sessions import DATABASE_PATH
 
 
 def run_ocr_for_saved_photos():
-    """Obradi spremljene fotografije plocica i spremi najbolje OCR rezultate."""
+    """Naknadna detekcija plocica i OCR spremljenih fotografija vozila."""
     os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 
     from paddleocr import PaddleOCR
+    from core.plate_detector import DetektorPlocica
     from core.ocr_database import initialize_ocr_database, save_ocr_result
 
-    project_root = Path(__file__).resolve().parent.parent
-    sessions_root = project_root / "data" / "sessions"
+    root = Path(__file__).resolve().parent.parent
+    sessions_root = root / "data" / "sessions"
+
+    stats = {
+        "photos": 0,
+        "saved": 0,
+        "no_text": 0,
+        "existing": 0,
+        "errors": 0
+    }
 
     initialize_ocr_database()
 
-    # Obrada samo fotografija koje su vec izdvojene kao plocice.
-    pattern = re.compile(r"^event_(\d+)_.*_plocica\.jpg$", re.IGNORECASE)
+    if not sessions_root.is_dir():
+        return stats
+
+    pattern = re.compile(
+        r"^event_(\d+)_kandidat_\d+\.jpg$",
+        re.IGNORECASE
+    )
+
     groups = {}
 
-    for folder in sessions_root.iterdir():
-        if not folder.is_dir():
+    for session in sorted(sessions_root.iterdir()):
+        if not session.is_dir() or not re.fullmatch(
+            r"RIVA-\d{6}", session.name
+        ):
             continue
-        plate_folder = folder / "ocr" / "plocice"
-        if not plate_folder.is_dir():
+
+        candidate_folder = session / "ocr" / "kandidati"
+
+        if not candidate_folder.is_dir():
             continue
-        for photo in plate_folder.glob("*.jpg"):
-            match = pattern.match(photo.name)
+
+        for photo in sorted(candidate_folder.glob("*.jpg")):
+            match = pattern.fullmatch(photo.name)
+
             if match:
                 event_id = int(match.group(1))
                 groups.setdefault(event_id, []).append(photo)
+                stats["photos"] += 1
 
     if not groups:
-        return {
-            "photos": 0, "saved": 0, "no_text": 0,
-            "existing": 0, "errors": 0
-        }
+        return stats
 
-    # Ne prepisuj postojece OCR rezultate.
     with sqlite3.connect(DATABASE_PATH) as conn:
         existing = {
-            row[0] for row in conn.execute(
+            row[0]
+            for row in conn.execute(
                 "SELECT event_id FROM ocr_results"
-            ).fetchall()
+            )
         }
+
         valid_events = {
-            row[0] for row in conn.execute(
+            row[0]
+            for row in conn.execute(
                 "SELECT id FROM vehicle_events"
-            ).fetchall()
+            )
         }
 
-    ocr = PaddleOCR(
-        lang="en",
-        use_doc_orientation_classify=False,
-        use_doc_unwarping=False,
-        use_textline_orientation=False
-    )
-
-    stats = {
-        "photos": sum(len(v) for v in groups.values()),
-        "saved": 0, "no_text": 0, "existing": 0, "errors": 0
-    }
+    detector = None
+    ocr = None
 
     for event_id, photos in sorted(groups.items()):
         if event_id in existing:
             stats["existing"] += 1
             continue
+
         if event_id not in valid_events:
             stats["errors"] += 1
             continue
 
         best = None
+        best_plate = None
+        best_photo = None
 
         for photo in photos:
             try:
-                results = ocr.predict(str(photo))
+                image = cv2.imread(str(photo))
+
+                if image is None:
+                    stats["errors"] += 1
+                    continue
+
+                if detector is None:
+                    detector = DetektorPlocica()
+
+                detection = detector.detektiraj(image)
+
+                if detection is None:
+                    continue
+
+                x1, y1, x2, y2 = detection["bbox"]
+
+                height, width = image.shape[:2]
+                x1 = max(0, min(int(x1), width))
+                x2 = max(0, min(int(x2), width))
+                y1 = max(0, min(int(y1), height))
+                y2 = max(0, min(int(y2), height))
+
+                if x2 <= x1 or y2 <= y1:
+                    continue
+
+                plate = image[y1:y2, x1:x2].copy()
+
+                if ocr is None:
+                    ocr = PaddleOCR(
+                        lang="en",
+                        use_doc_orientation_classify=False,
+                        use_doc_unwarping=False,
+                        use_textline_orientation=False
+                    )
+
+                results = ocr.predict(plate)
+
                 for item in results:
                     data = item.json
+
                     if callable(data):
                         data = data()
+
                     if not isinstance(data, dict):
                         continue
 
                     data = data.get("res", data)
+
                     texts = data.get("rec_texts", [])
                     scores = data.get("rec_scores", [])
 
                     for raw, score in zip(texts, scores):
-                        value = str(raw).strip().upper()
-                        value = re.sub(r"\s+", "", value)
-                        alnum_count = len(re.sub(r"[^A-Z0-9]", "", value))
+                        value = re.sub(
+                            r"\s+", "", str(raw).strip().upper()
+                        )
 
-                        # Odbaci ocigledno prekratke/preduge OCR fragmente.
+                        alnum_count = len(
+                            re.sub(r"[^A-Z0-9]", "", value)
+                        )
+
                         if not 4 <= alnum_count <= 10:
                             continue
 
                         confidence = float(score)
+
                         if not 0 <= confidence <= 1:
                             continue
 
                         candidate = (confidence, value)
+
                         if best is None or candidate[0] > best[0]:
                             best = candidate
-            except Exception:
+                            best_plate = plate.copy()
+                            best_photo = photo
+
+            except Exception as exc:
                 stats["errors"] += 1
+                print(f"[OCR] Greska {photo.name}: {exc}")
 
         if best is None:
             stats["no_text"] += 1
             continue
 
         try:
+            # Spremi rezultat bez prepisivanja postojecih zapisa.
             save_ocr_result(event_id, best[1], best[0])
             stats["saved"] += 1
+            existing.add(event_id)
+
+            # Spremi jednu najbolju izdvojenu plocicu.
+            plate_folder = best_photo.parent.parent / "plocice"
+            plate_folder.mkdir(parents=True, exist_ok=True)
+
+            plate_path = plate_folder / (
+                f"event_{event_id:08d}_najbolja_plocica.jpg"
+            )
+
+            if not plate_path.exists():
+                success, encoded = cv2.imencode(
+                    ".jpg", best_plate
+                )
+
+                if success:
+                    with open(plate_path, "xb") as file:
+                        file.write(encoded.tobytes())
+                else:
+                    stats["errors"] += 1
+
         except sqlite3.IntegrityError:
-            # Ako je rezultat u medjuvremenu spremljen, ne prepisuj ga.
             stats["existing"] += 1
-        except Exception:
+
+        except Exception as exc:
             stats["errors"] += 1
+            print(f"[OCR] Greska spremanja event {event_id}: {exc}")
 
     return stats
