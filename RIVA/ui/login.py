@@ -15,6 +15,7 @@ from core.users import verify_user
 from core.audit import log_event
 from ui.notifications import show_notification
 from ui.main_window import MainWindow
+from ui.login_visual import LoginVisual
 
 
 class LoginWindow(QWidget):
@@ -33,8 +34,8 @@ class LoginWindow(QWidget):
         # --------------------------------------------------
 
         self.setWindowTitle("RIVA | Prijava u sustav")
-        self.resize(1150, 720)
-        self.setMinimumSize(900, 580)
+        self.resize(1250, 750)
+        self.setMinimumSize(1050, 640)
 
         self.setStyleSheet("background-color: #0B1220;")
 
@@ -137,34 +138,64 @@ class LoginWindow(QWidget):
         """)
 
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(65, 70, 55, 55)
+        left_layout.setContentsMargins(42, 55, 30, 35)
         left_layout.setSpacing(18)
 
-        # Logotip i naziv aplikacije.
-        logo = QLabel("◈  RIVA")
+
+        # RIVA identitet - kompaktno profesionalno zaglavlje.
+        brand_row = QHBoxLayout()
+        brand_row.setSpacing(15)
+
+        brand_icon = QLabel(chr(0x25C8))
+        brand_icon.setFixedSize(54, 54)
+        brand_icon.setAlignment(Qt.AlignCenter)
+        brand_icon.setStyleSheet("""
+            background-color: #17374A;
+            color: #5DD9D0;
+            border: 1px solid #31576A;
+            border-radius: 12px;
+            font-size: 29px;
+        """)
+
+        brand_text = QVBoxLayout()
+        brand_text.setSpacing(1)
+
+        logo = QLabel("RIVA")
         logo.setStyleSheet("""
             color: #5DD9D0;
-            font-size: 44px;
+            font-size: 39px;
             font-weight: 800;
         """)
 
-        subtitle = QLabel(
-            "ROAD INTELLIGENCE\n"
-            "& VISION ANALYSIS"
-        )
+        subtitle = QLabel("Road Intelligence & Vision Analysis")
         subtitle.setStyleSheet("""
-            color: #EAF2FA;
-            font-size: 18px;
-            font-weight: bold;
+            color: #C1D3E1;
+            font-size: 13px;
+            font-weight: 500;
         """)
 
+        brand_text.addWidget(logo)
+        brand_text.addWidget(subtitle)
+
+        brand_row.addWidget(brand_icon)
+        brand_row.addLayout(brand_text)
+        brand_row.addStretch()
+
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFixedHeight(1)
+        separator.setStyleSheet("background-color: #2D485D; border: none;")
+
         description = QLabel(
-            "Inteligentni sustav za detekciju,\n"
+            "Inteligentni sustav za detekciju, "
             "praćenje i analizu cestovnog prometa."
         )
+        description.setWordWrap(True)
         description.setStyleSheet("""
-            color: #91A6BE;
-            font-size: 15px;
+            color: #C5D7E5;
+            font-family: "Segoe UI";
+            font-size: 16px;
+            font-weight: 600;
         """)
 
         footer = QLabel(
@@ -176,14 +207,18 @@ class LoginWindow(QWidget):
             font-size: 12px;
         """)
 
-        left_layout.addWidget(logo)
-        left_layout.addWidget(subtitle)
-        left_layout.addSpacing(25)
+        left_layout.addLayout(brand_row)
+        left_layout.addWidget(separator)
         left_layout.addWidget(description)
-        left_layout.addStretch()
+
+        # Animirana offline vizualizacija prometnog sustava.
+        self.login_visual = LoginVisual(left_panel)
+        self.login_visual.setMinimumHeight(280)
+        left_layout.addWidget(self.login_visual, 0)
+
         left_layout.addWidget(footer)
 
-        main_layout.addWidget(left_panel, 5)
+        main_layout.addWidget(left_panel, 7)
 
         # --------------------------------------------------
         # DESNA STRANA - OBRAZAC ZA PRIJAVU
@@ -191,12 +226,12 @@ class LoginWindow(QWidget):
 
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(55, 50, 55, 50)
+        right_layout.setContentsMargins(15, 35, 20, 35)
 
         # Kartica za prijavu korisnika.
         login_card = QFrame()
         login_card.setObjectName("loginCard")
-        login_card.setMaximumWidth(440)
+        login_card.setMaximumWidth(365)
 
         login_card.setStyleSheet("""
             QFrame#loginCard {
@@ -239,18 +274,18 @@ class LoginWindow(QWidget):
         """)
 
         card_layout = QVBoxLayout(login_card)
-        card_layout.setContentsMargins(38, 40, 38, 40)
-        card_layout.setSpacing(14)
+        card_layout.setContentsMargins(23, 30, 23, 30)
+        card_layout.setSpacing(11)
 
         # Naslov obrasca.
-        welcome = QLabel("Dobro došli natrag")
+        welcome = QLabel("Prijava u sustav")
         welcome.setStyleSheet("""
             color: #FFFFFF;
             font-size: 27px;
             font-weight: bold;
         """)
 
-        hint = QLabel("Prijavite se za pristup sustavu RIVA.")
+        hint = QLabel("Unesite korisničke podatke za pristup aplikaciji RIVA.")
         hint.setStyleSheet("""
             color: #91A6BE;
             font-size: 13px;
@@ -266,6 +301,7 @@ class LoginWindow(QWidget):
         self.username = QLineEdit()
         self.username.setPlaceholderText("Unesite korisničko ime")
         self.username.setMinimumHeight(47)
+        self.username.setTextMargins(29, 0, 0, 0)
 
         # Lozinka.
         password_label = QLabel("LOZINKA")
@@ -278,6 +314,53 @@ class LoginWindow(QWidget):
         self.password.setPlaceholderText("Unesite lozinku")
         self.password.setEchoMode(QLineEdit.Password)
         self.password.setMinimumHeight(47)
+        self.password.setTextMargins(29, 0, 0, 0)
+
+
+        # Ikone korisnika i lokota unutar polja.
+        from PySide6.QtCore import QByteArray
+        from PySide6.QtGui import QIcon, QPixmap
+        from PySide6.QtSvg import QSvgRenderer
+        from PySide6.QtGui import QPainter
+
+        def make_icon(svg):
+            pixmap = QPixmap(20, 20)
+            pixmap.fill(Qt.transparent)
+            painter = QPainter(pixmap)
+            renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+            renderer.render(painter)
+            painter.end()
+            return QIcon(pixmap)
+
+        user_svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" '
+            'width="20" height="20" viewBox="0 0 24 24" '
+            'fill="none" stroke="#91A6BE" stroke-width="1.8" '
+            'stroke-linecap="round" stroke-linejoin="round">'
+            '<circle cx="12" cy="8" r="4"/>'
+            '<path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'
+            '</svg>'
+        )
+
+        lock_svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" '
+            'width="20" height="20" viewBox="0 0 24 24" '
+            'fill="none" stroke="#91A6BE" stroke-width="1.8" '
+            'stroke-linecap="round" stroke-linejoin="round">'
+            '<rect x="5" y="10" width="14" height="11" rx="2"/>'
+            '<path d="M8 10V7a4 4 0 0 1 8 0v3"/>'
+            '</svg>'
+        )
+
+        self.username.addAction(
+            make_icon(user_svg),
+            QLineEdit.LeadingPosition
+        )
+
+        self.password.addAction(
+            make_icon(lock_svg),
+            QLineEdit.LeadingPosition
+        )
 
         # Gumb za prijavu.
         self.login_button = QPushButton("Prijavi se  →")
@@ -290,7 +373,7 @@ class LoginWindow(QWidget):
         # Dodavanje elemenata u karticu.
         card_layout.addWidget(welcome)
         card_layout.addWidget(hint)
-        card_layout.addSpacing(24)
+        card_layout.addSpacing(12)
 
         card_layout.addWidget(username_label)
         card_layout.addWidget(self.username)
@@ -300,7 +383,7 @@ class LoginWindow(QWidget):
         card_layout.addWidget(password_label)
         card_layout.addWidget(self.password)
 
-        card_layout.addSpacing(22)
+        card_layout.addSpacing(14)
         card_layout.addWidget(self.login_button)
 
         # Centriranje kartice na desnoj strani.
@@ -311,7 +394,7 @@ class LoginWindow(QWidget):
         )
         right_layout.addStretch()
 
-        main_layout.addWidget(right_panel, 6)
+        main_layout.addWidget(right_panel, 3)
 
         # Početni fokus na korisničko ime.
         self.username.setFocus()

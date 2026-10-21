@@ -231,14 +231,19 @@ class DashboardPage(QWidget):
         row.setContentsMargins(16, 12, 16, 12)
         row.setSpacing(10)
 
-        row.addWidget(
-            self.text_label(
-                "◈  RIVA CONTROL CENTER",
-                12,
-                "#5DD9D0",
-                True
-            )
+        control_label = self.text_label(
+            chr(0x25C8) + "  RIVA CONTROL CENTER",
+            12,
+            "#5DD9D0",
+            True
         )
+        control_label.setWordWrap(False)
+        control_label.setMinimumWidth(
+            control_label.fontMetrics().horizontalAdvance(
+                control_label.text()
+            ) + 12
+        )
+        row.addWidget(control_label)
 
         row.addStretch()
 

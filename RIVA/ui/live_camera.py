@@ -1,3 +1,4 @@
+from PySide6.QtWidgets import QScrollArea
 """RIVA - LIVE video, RTSP prijava, detekcija, tracking i brojanje."""
 
 import hashlib
@@ -12,12 +13,18 @@ from PySide6.QtCore import Qt, QThread, Signal, QSettings
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QFileDialog, QLineEdit, QComboBox, QMessageBox,
+    QFileDialog, QLineEdit, QComboBox, QMessageBox, QSizePolicy,
 )
 
 from core.vehicle_detector import VehicleDetector
 from core.vehicle_tracker import VehicleTracker
 from core.vehicle_counter import VehicleCounter
+from core.ocr_capture import (
+    UpraviteljOCRKandidata,
+    izdvoji_vozilo,
+    pripremi_ocr_mape,
+    spremi_ocr_kandidate,
+)
 from core.sessions import (create_session, save_session_statistics,
                            add_vehicle_event, finish_session)
 from ui.line_calibration import LineCalibrationDialog
@@ -175,7 +182,27 @@ class VideoWorker(QThread):
                                 notes="Statistička analiza (bez OCR-a)",
                             )
                             session_id = session["id"]
+                            ocr_mape = pripremi_ocr_mape(session["directory"])
+                            ocr_upravitelj = UpraviteljOCRKandidata()
                             save_session_statistics(session_id, counter.get_statistics())
+
+                            try:
+                                from core.audit import log_event
+                                log_event(
+                                    event_type="ANALYSIS_STARTED",
+                                    username=self.username,
+                                    description=(
+                                        f"Pokrenuta analiza {session['session_code']}. "
+                                        f"Izvor: {'VIDEO' if self.is_file else 'LIVE'}."
+                                    ),
+                                    status="SUCCESS"
+                                )
+                            except Exception as audit_error:
+                                print(
+                                    "Upozorenje: Pocetak analize nije evidentiran:",
+                                    type(audit_error).__name__
+                                )
+
                             self.session_changed.emit(
                                 f"Analiza {session['session_code']} započela je."
                             )
@@ -192,17 +219,44 @@ class VideoWorker(QThread):
                     output, vehicles = tracker.track(original)
                     self.detections_changed.emit(len(vehicles))
                     if counter is not None:
+                        if session_id is not None and frame_index % 10 == 0:
+                            for vozilo in vehicles:
+                                track_id = vozilo.get("track_id")
+                                bbox = vozilo.get("bbox")
+                                if type(track_id) is not int or bbox is None:
+                                    continue
+                                try:
+                                    fotografija = izdvoji_vozilo(original, bbox)
+                                    if fotografija is not None:
+                                        ocr_upravitelj.dodaj(track_id, fotografija)
+                                except (ValueError, TypeError, cv2.error):
+                                    continue
                         timestamp = (start_wall_time + timedelta(seconds=(frame_index - 1) / fps)
                                      if self.is_file else datetime.now().astimezone())
                         new_events = counter.update(vehicles, timestamp=timestamp)
                         if session_id is not None and new_events:
                             for event in new_events:
-                                add_vehicle_event(session_id, event)
+                                event_id = add_vehicle_event(session_id, event)
+                                try:
+                                    fotografije = ocr_upravitelj.preuzmi(event["track_id"])
+                                    if fotografije:
+                                        spremi_ocr_kandidate(
+                                            ocr_mape["kandidati"],
+                                            event_id,
+                                            fotografije
+                                        )
+                                except Exception as ocr_error:
+                                    print(
+                                        "Upozorenje: OCR fotografije nisu spremljene:",
+                                        type(ocr_error).__name__
+                                    )
                             save_session_statistics(session_id, counter.get_statistics())
                         inactive = tracker.get_inactive_ids(threshold_frames=30)
                         if inactive:
                             counter.remove_inactive(inactive)
                             for track_id in inactive:
+                                if session_id is not None:
+                                    ocr_upravitelj.preuzmi(track_id)
                                 tracker.remove_id(track_id)
                         self.statistics_changed.emit(counter.get_statistics())
                 else:
@@ -221,8 +275,20 @@ class VideoWorker(QThread):
         except Exception as error:
             failure = True
             # Namjerno ne prikazujemo puni URL niti detalje koji bi otkrili lozinku.
-            self.error_occurred.emit(f"Obrada nije uspjela: {type(error).__name__}")
+            if isinstance(error, RuntimeError) and str(error) == "Videoizvor nije otvoren":
+                message = (
+                    "Nije moguce otvoriti videoizvor. "
+                    "Provjerite adresu kamere, mrezu i pristupne podatke."
+                )
+            else:
+                message = (
+                    "Obrada nije uspjela: "
+                    + type(error).__name__
+                )
+            self.error_occurred.emit(message)
         finally:
+            if session_id is not None and "ocr_upravitelj" in locals():
+                ocr_upravitelj.ocisti()
             if session_id is not None:
                 try:
                     final_stats = counter.get_statistics() if counter else {"total_count": 0}
@@ -235,6 +301,30 @@ class VideoWorker(QThread):
                         session_id, status=final_status,
                         total_vehicles=int(final_stats.get("total_count", 0))
                     )
+
+                    try:
+                        from core.audit import log_event
+                        log_event(
+                            event_type="ANALYSIS_" + final_status,
+                            username=self.username,
+                            description=(
+                                f"Zavrsena sesija #{session_id}. "
+                                f"Izvor: {'VIDEO' if self.is_file else 'LIVE'}. "
+                                f"Broj vozila: {int(final_stats.get('total_count', 0))}. "
+                                f"Status: {final_status}."
+                            ),
+                            status=(
+                                "FAILED" if final_status == "FAILED"
+                                else "SUCCESS" if final_status == "COMPLETED"
+                                else "INFO"
+                            )
+                        )
+                    except Exception as audit_error:
+                        print(
+                            "Upozorenje: Zavrsetak analize nije evidentiran:",
+                            type(audit_error).__name__
+                        )
+
                     self.session_changed.emit(
                         f"Sesija #{session_id} spremljena ({final_status})."
                     )
@@ -281,7 +371,19 @@ class LiveCameraPage(QWidget):
             QPushButton:hover { background-color: #344C67; }
             QPushButton:disabled { color: #61748B; background-color: #1A293A; }
         """)
-        main = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+        )
+
+        content = QWidget()
+        main = QVBoxLayout(content)
         main.setContentsMargins(32, 24, 32, 24)
         main.setSpacing(12)
 
@@ -362,7 +464,9 @@ class LiveCameraPage(QWidget):
 
         self.video_label = QLabel("◉\n\nČeka se povezivanje videoizvora")
         self.video_label.setAlignment(Qt.AlignCenter)
-        self.video_label.setMinimumHeight(220)
+        self.video_label.setMinimumHeight(450)
+        self.video_label.setMinimumWidth(0)
+        self.video_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self.video_label.setStyleSheet("""
             background: #0B1525; border: 1px dashed #35516B;
             border-radius: 12px; color: #91A6BE; font-size: 15px;
@@ -410,6 +514,9 @@ class LiveCameraPage(QWidget):
         self.info_label.setStyleSheet("color: #91A6BE; font-size: 12px;")
         main.addWidget(self.info_label)
         self.update_status("OFFLINE")
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+
 
     def source_changed(self, *_):
         self.source_input.clear()
@@ -630,3 +737,8 @@ class LiveCameraPage(QWidget):
                 event.ignore()
                 return
         super().closeEvent(event)
+
+
+
+
+

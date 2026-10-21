@@ -1,7 +1,8 @@
 from ui.settings import SettingsPage
 """RIVA - glavni prozor, navigacija, osvježavanje i siguran izlazak."""
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer, QSize
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QPen, QColor
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QPushButton, QFrame, QStackedWidget, QMessageBox, QDialog,
@@ -10,7 +11,9 @@ from PySide6.QtWidgets import (
 from ui.dashboard import DashboardPage
 from ui.live_camera import LiveCameraPage
 from ui.results import ResultsPage
+from ui.ocr_page import OCRPage
 from ui.reports import ReportsPage
+from ui.activity import ActivityPage
 from ui.notifications import show_notification
 
 
@@ -259,39 +262,150 @@ class MainWindow(QMainWindow):
         self.dashboard = DashboardPage()
         self.live_camera = LiveCameraPage(username=self.username)
         self.results = ResultsPage()
-        self.reports = ReportsPage()
+        self.reports = ReportsPage(username=self.username)
 
         self.pages.addWidget(self.dashboard)  # 0
         self.pages.addWidget(self.live_camera)  # 1
-        self.pages.addWidget(self.create_placeholder(
-            "OCR analiza", "Modul je pripremljen za implementaciju."))  # 2
+        self.ocr_page = OCRPage()
+        self.pages.addWidget(self.ocr_page)  # 2
         self.pages.addWidget(self.results)  # 3
         self.pages.addWidget(self.reports)  # 4
-        self.pages.addWidget(self.create_placeholder(
-            "Aktivnosti sustava", "Modul je pripremljen za implementaciju."))  # 5
+        self.activity = ActivityPage()
+        self.pages.addWidget(self.activity)  # 5
         self.settings = SettingsPage(self.username)
         self.pages.addWidget(self.settings)  # 6
+
+        # RIVA ekran za osvjezavanje podataka.
+        refresh_screen = QWidget()
+        refresh_screen.setStyleSheet("background: #0B1423;")
+
+        refresh_layout = QVBoxLayout(refresh_screen)
+        refresh_layout.setAlignment(Qt.AlignCenter)
+        refresh_layout.setSpacing(14)
+
+        refresh_logo = QLabel(chr(0x25C8) + " RIVA")
+        refresh_logo.setAlignment(Qt.AlignCenter)
+        refresh_logo.setStyleSheet(
+            "color: #5DD9D0; font-size: 54px; font-weight: bold;"
+        )
+
+        refresh_subtitle = QLabel(
+            "ROAD INTELLIGENCE & VISION ANALYSIS"
+        )
+        refresh_subtitle.setAlignment(Qt.AlignCenter)
+        refresh_subtitle.setStyleSheet(
+            "color: #91A6BE; font-size: 14px; letter-spacing: 2px;"
+        )
+
+        refresh_layout.addWidget(refresh_logo)
+        refresh_layout.addWidget(refresh_subtitle)
+
+        self.refresh_screen_index = self.pages.addWidget(refresh_screen)
+
 
         self.dashboard.open_camera.connect(lambda: self.change_page(1))
         self.dashboard.open_analysis.connect(lambda: self.change_page(2))
         self.dashboard.open_reports.connect(lambda: self.change_page(4))
 
         sections = [
-            ("⌂  Nadzorna ploča", 0),
-            ("◉  LIVE kamera", 1),
-            ("◎  OCR analiza", 2),
-            ("▤  Rezultati", 3),
-            ("▥  Izvještaji", 4),
-            ("◷  Aktivnosti sustava", 5),
-            ("⚙  Postavke", 6),
+            ("Nadzorna ploča", 0),
+            ("LIVE kamera", 1),
+            ("OCR analiza", 2),
+            ("Rezultati", 3),
+            ("Izvještaji", 4),
+            ("Aktivnosti sustava", 5),
+            ("Postavke", 6),
         ]
+
+        def make_nav_icon(index, color='#91A6BE'):
+            """Crta ujednacenu ikonu u 24x24 prostoru."""
+            pixmap = QPixmap(24, 24)
+            pixmap.fill(Qt.transparent)
+
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+
+            pen = QPen(QColor(color))
+            pen.setWidthF(1.8)
+            pen.setCapStyle(Qt.RoundCap)
+            pen.setJoinStyle(Qt.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+
+            if index == 0:
+                # Nadzorna ploca - kuca.
+                painter.drawLine(4, 11, 12, 5)
+                painter.drawLine(12, 5, 20, 11)
+                painter.drawLine(6, 10, 6, 20)
+                painter.drawLine(18, 10, 18, 20)
+                painter.drawLine(6, 20, 18, 20)
+                painter.drawRect(10, 14, 4, 6)
+
+            elif index == 1:
+                # Kamera.
+                painter.drawRoundedRect(3, 7, 14, 11, 2, 2)
+                painter.drawLine(17, 10, 21, 7)
+                painter.drawLine(21, 7, 21, 18)
+                painter.drawLine(21, 18, 17, 15)
+                painter.drawEllipse(8, 10, 5, 5)
+
+            elif index == 2:
+                # OCR - okvir za skeniranje.
+                for x, y, dx, dy in [
+                    (4, 9, 0, -5), (4, 4, 5, 0),
+                    (15, 4, 5, 0), (20, 4, 0, 5),
+                    (4, 15, 0, 5), (4, 20, 5, 0),
+                    (15, 20, 5, 0), (20, 15, 0, 5),
+                ]:
+                    painter.drawLine(x, y, x + dx, y + dy)
+                painter.drawLine(7, 12, 17, 12)
+
+            elif index == 3:
+                # Rezultati - grafikon.
+                painter.drawLine(4, 20, 20, 20)
+                painter.drawLine(4, 20, 4, 4)
+                painter.drawRect(7, 12, 3, 6)
+                painter.drawRect(12, 8, 3, 10)
+                painter.drawRect(17, 5, 3, 13)
+
+            elif index == 4:
+                # Izvjestaji - dokument.
+                painter.drawRect(5, 3, 14, 18)
+                painter.drawLine(8, 9, 16, 9)
+                painter.drawLine(8, 13, 16, 13)
+                painter.drawLine(8, 17, 14, 17)
+
+            elif index == 5:
+                # Aktivnosti - sat.
+                painter.drawEllipse(4, 4, 16, 16)
+                painter.drawLine(12, 7, 12, 12)
+                painter.drawLine(12, 12, 16, 14)
+
+            elif index == 6:
+                # Postavke - klizaci.
+                for y, knob in [(6, 9), (12, 16), (18, 8)]:
+                    painter.drawLine(4, y, 20, y)
+                    painter.setBrush(QColor(color))
+                    painter.drawEllipse(knob - 2, y - 2, 4, 4)
+                    painter.setBrush(Qt.NoBrush)
+
+            painter.end()
+            return QIcon(pixmap)
+
         self.nav_buttons = []
+
         for title, index in sections:
             button = QPushButton(title)
             button.setObjectName("navButton")
+            button.setIcon(make_nav_icon(index))
+            button.setIconSize(QSize(20, 20))
+            button.inactive_icon = make_nav_icon(index, "#91A6BE")
+            button.active_icon = make_nav_icon(index, "#5DD9D0")
             button.setCheckable(True)
             button.setCursor(Qt.PointingHandCursor)
-            button.clicked.connect(lambda checked=False, i=index: self.change_page(i))
+            button.clicked.connect(
+                lambda checked=False, i=index: self.change_page(i)
+            )
             sidebar_layout.addWidget(button)
             self.nav_buttons.append(button)
 
@@ -363,35 +477,46 @@ class MainWindow(QMainWindow):
             self.results.refresh_sessions()
         elif index == 4:
             self.reports.refresh_reports()
+        if index == 5:
+            self.activity.refresh_activities()
         for i, button in enumerate(self.nav_buttons):
-            button.setChecked(i == index)
+            active = (i == index)
+            button.setChecked(active)
+            button.setIcon(
+                button.active_icon if active else button.inactive_icon
+            )
 
     def refresh_current_page(self):
-        """Osvježava podatke aktivnog modula, bez prekidanja LIVE videa."""
-        index = self.pages.currentIndex()
+        """Prikazuje RIVA ekran i osvjezava podatke svih modula."""
+        if self.pages.currentIndex() == self.refresh_screen_index:
+            return
+
+        self._refresh_return_index = self.pages.currentIndex()
+        self.refresh_button.setEnabled(False)
+        self.pages.setCurrentIndex(self.refresh_screen_index)
+
+        # Kratka odgoda omogucuje prikaz RIVA ekrana.
+        QTimer.singleShot(350, self._finish_refresh)
+
+    def _finish_refresh(self):
+        """Osvjezava podatke i vraca prethodnu stranicu."""
         try:
-            if index == 0:
-                self.dashboard.refresh_dashboard()
-            elif index == 3:
-                self.results.refresh_sessions()
-            elif index == 4:
-                self.reports.refresh_reports()
-            elif index == 1:
-                show_notification(
-                    self, "LIVE kamera",
-                    "LIVE prikaz se ažurira automatski. Aktivna analiza nije prekinuta.",
-                    "info",
-                )
-            else:
-                show_notification(
-                    self, "Osvježavanje",
-                    "Za ovaj modul još nema podataka za osvježavanje.",
-                    "info",
-                )
-        except Exception:
-            QMessageBox.warning(
-                self, "RIVA", "Osvježavanje nije uspjelo. Provjeri dostupnost podataka."
-            )
+            actions = [
+                self.dashboard.refresh_dashboard,
+                self.results.refresh_sessions,
+                self.reports.refresh_reports,
+                self.activity.refresh_activities,
+            ]
+
+            for action in actions:
+                try:
+                    action()
+                except Exception:
+                    # Pojedinacna greska ne prekida osvjezavanje drugih modula.
+                    pass
+        finally:
+            self.pages.setCurrentIndex(self._refresh_return_index)
+            self.refresh_button.setEnabled(True)
 
     def logout(self):
         dialog = ExitDialog(

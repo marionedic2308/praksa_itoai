@@ -408,8 +408,9 @@ class ExportDialog(QDialog):
 
 class ReportsPage(QWidget):
     """Modul Izvjestaji: pregled sesija, statistika, grafikoni i PDF."""
-    def __init__(self):
+    def __init__(self, username=None):
         super().__init__()
+        self.username = username
         self.session_id = None
         self.session = None
         self.stats = {}
@@ -697,4 +698,22 @@ class ReportsPage(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, 'RIVA | PDF izvoz', f'Izvoz nije uspio: {exc}')
             return
+        from core.audit import log_event
+
+        try:
+            log_event(
+                event_type="REPORT_GENERATED",
+                username=self.username,
+                description=(
+                    "Uspjesno izraden standardni prometni izvjestaj. "
+                    f"Sesija: {code}. Format: PDF."
+                ),
+                status="SUCCESS"
+            )
+        except Exception as audit_error:
+            print(
+                "Upozorenje: PDF je spremljen, ali evidencija "
+                f"nije azurirana: {audit_error}"
+            )
+
         ExportDialog(self, path).exec()
