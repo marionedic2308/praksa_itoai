@@ -561,8 +561,8 @@ class ActivityPage(QWidget):
             ("ID zapisa", str(event[0])),
             ("Korisnik", str(event[2] or "-")),
             ("Datum i vrijeme", timestamp),
-            ("Vrsta", kind),
-            ("Status", str(event[5] or "-")),
+            ("Vrsta", self.event_display_name(kind)),
+            ("Status", self.status_display_name(event[5])),
             ("Opis", str(event[4] or "Nema dodatnog opisa.")),
         ]
 
@@ -777,13 +777,31 @@ class ActivityPage(QWidget):
         self.event_filter.addItem("Sve vrste događaja", "")
 
         for event_type in types:
-            self.event_filter.addItem(event_type, event_type)
+            self.event_filter.addItem(self.event_display_name(event_type), event_type)
 
         index = self.event_filter.findData(selected)
         self.event_filter.setCurrentIndex(max(index, 0))
         self.event_filter.blockSignals(False)
 
         self.apply_filters()
+
+
+    def event_display_name(self, event_type):
+        names = {
+            "TRAFFIC_REPORT_EXPORTED": "Izvoz prometnog izvje\u0161\u0107a",
+            "OCR_PUBLIC_EXPORTED": "Izvoz javnog OCR izvje\u0161\u0107a",
+            "OCR_INTERNAL_EXPORTED": "Izvoz internog OCR izvje\u0161\u0107a",
+            "REPORT_GENERATED": "Izrada prometnog izvje\u0161\u0107a",
+        }
+        return names.get(str(event_type), str(event_type or "-"))
+
+    def status_display_name(self, status):
+        names = {
+            "SUCCESS": "Uspje\u0161no",
+            "FAILED": "Neuspje\u0161no",
+            "INFO": "Informacija",
+        }
+        return names.get(str(status), str(status or "-"))
 
     def apply_filters(self, *_):
         query = self.search.text().strip().casefold()
@@ -798,7 +816,9 @@ class ActivityPage(QWidget):
 
             searchable = " ".join(
                 str(value or "") for value in (
-                    event[2], event[3], event[4]
+                    event[2], event[3], event[4],
+                    self.event_display_name(event[3]),
+                    self.status_display_name(event[5])
                 )
             ).casefold()
 
@@ -828,8 +848,8 @@ class ActivityPage(QWidget):
                 date_text,
                 time_text,
                 str(event[2] or "-"),
-                str(event[3]),
-                str(event[5]),
+                self.event_display_name(event[3]),
+                self.status_display_name(event[5]),
             ]
 
             for column, value in enumerate(values):

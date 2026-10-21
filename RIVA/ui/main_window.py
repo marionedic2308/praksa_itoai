@@ -410,11 +410,28 @@ class MainWindow(QMainWindow):
             self.nav_buttons.append(button)
 
         sidebar_layout.addStretch()
-        user_label = QLabel(f"●  {self.username}")
-        user_label.setStyleSheet("color: #DDEAF5; font-size: 13px; font-weight: bold;")
+
+        # Podaci o prijavljenom korisniku.
+        user_heading = QLabel("PRIJAVLJENI KORISNIK")
+        user_heading.setStyleSheet("""
+            color: #91A6BE;
+            font-size: 10px;
+            font-weight: bold;
+        """)
+        sidebar_layout.addWidget(user_heading)
+
+        user_label = QLabel(self.username.upper())
+        user_label.setStyleSheet("""
+            color: #EAF5FC;
+            font-size: 14px;
+            font-weight: bold;
+        """)
         sidebar_layout.addWidget(user_label)
 
-        logout_button = QPushButton("↪  Odjava")
+        sidebar_layout.addSpacing(8)
+
+        # Gumb odjave.
+        logout_button = QPushButton("Odjava")
         logout_button.setObjectName("secondaryButton")
         logout_button.setCursor(Qt.PointingHandCursor)
         logout_button.clicked.connect(self.logout)

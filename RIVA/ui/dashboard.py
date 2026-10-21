@@ -29,6 +29,118 @@ from core.sessions import (
 # ============================================================
 
 
+
+class TrafficChart(QWidget):
+    """Stupcasti grafikon stvarnih prometnih sesija."""
+
+    def __init__(self):
+        super().__init__()
+        self.values = []
+        self.setMinimumHeight(240)
+
+    def set_data(self, sessions):
+        self.values = list(reversed(sessions))
+        self.update()
+
+    def paintEvent(self, event):
+        from PySide6.QtGui import QPainter, QColor, QPen, QFont
+        from PySide6.QtCore import QRectF
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(self.rect(), QColor("#101D30"))
+
+        if not self.values:
+            painter.setPen(QColor("#91A6BE"))
+            painter.drawText(
+                self.rect(), Qt.AlignCenter,
+                "Nema spremljenih prometnih sesija."
+            )
+            painter.end()
+            return
+
+        left, right = 48, 18
+        top, bottom = 35, 52
+        width = max(1, self.width() - left - right)
+        height = max(1, self.height() - top - bottom)
+
+        maximum = max(
+            1, max(int(s.get("total_vehicles") or 0)
+                   for s in self.values)
+        )
+
+        # Cjelobrojna skala.
+        step = max(1, (maximum + 3) // 4)
+        ceiling = step * 4
+
+        painter.setFont(QFont("Segoe UI", 9))
+
+        for i in range(5):
+            value = ceiling - i * step
+            y = top + height * i / 4
+
+            painter.setPen(QPen(QColor("#30445B"), 1))
+            painter.drawLine(
+                int(left), int(y),
+                int(left + width), int(y)
+            )
+
+            painter.setPen(QColor("#91A6BE"))
+            painter.drawText(
+                QRectF(0, y - 9, left - 10, 18),
+                Qt.AlignRight | Qt.AlignVCenter,
+                str(value)
+            )
+
+        count = len(self.values)
+        slot = width / count
+        bar_width = min(22, slot * 0.32)
+
+        for i, session in enumerate(self.values):
+            value = int(session.get("total_vehicles") or 0)
+            bar_height = height * value / ceiling
+
+            x = left + slot * (i + 0.5)
+            y = top + height - bar_height
+
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor("#F2B84B"))
+
+            if value:
+                painter.drawRoundedRect(
+                    QRectF(
+                        x - bar_width / 2, y,
+                        bar_width, bar_height
+                    ),
+                    6, 6
+                )
+
+            painter.setPen(QColor("#EAF5FC"))
+            painter.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            painter.drawText(
+                QRectF(x - 35, max(0, y - 24), 70, 20),
+                Qt.AlignCenter,
+                str(value)
+            )
+
+            code = session.get("session_code") or ""
+            label = code.replace("RIVA-", "")
+
+            painter.setPen(QColor("#91A6BE"))
+            painter.setFont(QFont("Segoe UI", 9))
+            painter.drawText(
+                QRectF(
+                    x - slot / 2,
+                    top + height + 13,
+                    slot, 20
+                ),
+                Qt.AlignCenter,
+                label
+            )
+
+        painter.end()
+
+
 class DashboardPage(QWidget):
 
     # Signali za navigaciju glavnog prozora.
@@ -505,7 +617,7 @@ class DashboardPage(QWidget):
         layout.addSpacing(8)
 
         camera_button = QPushButton(
-            "◉    Otvori LIVE kameru"
+            "Otvori LIVE kameru"
         )
         camera_button.setObjectName("primaryButton")
         camera_button.setMinimumHeight(49)
@@ -515,7 +627,7 @@ class DashboardPage(QWidget):
         )
 
         analysis_button = QPushButton(
-            "◎    Pokreni OCR modul"
+            "Pokreni OCR modul"
         )
         analysis_button.setObjectName("secondaryButton")
         analysis_button.setMinimumHeight(49)
@@ -525,9 +637,55 @@ class DashboardPage(QWidget):
         )
 
         reports_button = QPushButton(
-            "▤    Pregled izvještaja"
+            "Pregled izvještaja"
         )
         reports_button.setObjectName("secondaryButton")
+
+        # Ujednacene vektorske ikone za brzi pristup.
+        from PySide6.QtCore import QSize
+        from PySide6.QtGui import QIcon, QPainter, QPixmap
+        from PySide6.QtSvg import QSvgRenderer
+
+        def make_icon(paths, color):
+            svg = (
+                '<svg xmlns="http://www.w3.org/2000/svg" '
+                'width="24" height="24" viewBox="0 0 24 24" '
+                'fill="none" stroke="' + color + '" '
+                'stroke-width="1.9" stroke-linecap="round" '
+                'stroke-linejoin="round">' + paths + '</svg>'
+            )
+            pixmap = QPixmap(48, 48)
+            pixmap.fill(Qt.transparent)
+            painter = QPainter(pixmap)
+            renderer = QSvgRenderer(svg.encode("utf-8"))
+            renderer.render(painter)
+            painter.end()
+            return QIcon(pixmap)
+
+        camera_button.setIcon(make_icon(
+            '<rect x="3" y="5" width="14" height="14" rx="2"/>'
+            '<path d="m17 10 4-3v10l-4-3z"/>',
+            "#10263A"
+        ))
+        analysis_button.setIcon(make_icon(
+            '<path d="M8 3H5a2 2 0 0 0-2 2v3"/>'
+            '<path d="M16 3h3a2 2 0 0 1 2 2v3"/>'
+            '<path d="M3 16v3a2 2 0 0 0 2 2h3"/>'
+            '<path d="M21 16v3a2 2 0 0 1-2 2h-3"/>',
+            "#A8C1D4"
+        ))
+        reports_button.setIcon(make_icon(
+            '<path d="M7 3h8l4 4v14H7z"/>'
+            '<path d="M15 3v5h4"/>'
+            '<path d="M10 12h6M10 16h6"/>',
+            "#A8C1D4"
+        ))
+
+        for button in (
+            camera_button, analysis_button, reports_button
+        ):
+            button.setIconSize(QSize(20, 20))
+
         reports_button.setMinimumHeight(49)
         reports_button.setCursor(Qt.PointingHandCursor)
         reports_button.clicked.connect(
@@ -573,8 +731,6 @@ class DashboardPage(QWidget):
     # ========================================================
 
     def build_chart_panel(self):
-        """Priprema grafikon za stvarne prometne podatke."""
-
         frame = self.card()
 
         layout = QVBoxLayout(frame)
@@ -584,56 +740,45 @@ class DashboardPage(QWidget):
         layout.addLayout(
             self.section_title(
                 "Analitika prometa",
-                "Kretanje broja vozila kroz vrijeme"
+                "Broj evidentiranih vozila po sesijama"
             )
         )
 
         chart_area = QFrame()
-        chart_area.setMinimumHeight(185)
         chart_area.setStyleSheet("""
             QFrame {
-                background-color: #101D30;
-                border: 1px solid #263B54;
-                border-radius: 12px;
+                background:#101D30;
+                border:1px solid #263B54;
+                border-radius:12px;
             }
         """)
 
         chart_layout = QVBoxLayout(chart_area)
-        chart_layout.setAlignment(Qt.AlignCenter)
-        chart_layout.setSpacing(10)
+        chart_layout.setContentsMargins(12, 14, 12, 10)
 
-        symbol = self.text_label(
-            "▥", 35, "#5DD9D0", True
-        )
-        symbol.setAlignment(Qt.AlignCenter)
-
-        title = self.text_label(
-            "Analitički podaci još nisu dostupni",
-            14,
-            "#DDEAF5",
-            True
-        )
-        title.setAlignment(Qt.AlignCenter)
-
-        description = self.text_label(
-            "Grafikon će prikazivati stvarne rezultate "
-            "spremljenih prometnih sesija.",
-            12,
-            "#91A6BE"
-        )
-        description.setAlignment(Qt.AlignCenter)
-
-        chart_layout.addWidget(symbol)
-        chart_layout.addWidget(title)
-        chart_layout.addWidget(description)
+        self.traffic_chart = TrafficChart()
+        chart_layout.addWidget(self.traffic_chart)
 
         layout.addWidget(chart_area)
 
+        legend = self.text_label(
+            "Zlatno: broj vozila  |  "
+            "X: prometne sesije  |  "
+            "Y: broj vozila",
+            11, "#91A6BE"
+        )
+        layout.addWidget(legend)
+
         return frame
 
-    # ========================================================
+    def refresh_traffic_chart(self):
+        try:
+            sessions = get_recent_sessions(7)
+            self.traffic_chart.set_data(sessions)
+        except Exception:
+            self.traffic_chart.set_data([])
+
     # POSLJEDNJE PROMETNE SESIJE
-    # ========================================================
 
     def build_sessions_panel(self):
         """Prikazuje posljednje spremljene analize."""
@@ -978,6 +1123,7 @@ class DashboardPage(QWidget):
 
         self.load_sessions()
         self.load_activities()
+        self.refresh_traffic_chart()
 
     def clear_layout(self, layout):
         """Sigurno uklanja prethodno prikazane elemente."""

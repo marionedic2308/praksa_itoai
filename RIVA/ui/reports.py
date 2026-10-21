@@ -1,3 +1,4 @@
+from core.ocr_reports import get_ocr_report
 """RIVA | Moderni prometni izvjestaji i PDF izvoz bez OCR podataka."""
 from datetime import datetime
 from pathlib import Path
@@ -569,23 +570,401 @@ class ReportsPage(QWidget):
 
         ocr = QWidget()
         ocr_layout = QVBoxLayout(ocr)
-        ocr_layout.setContentsMargins(25, 35, 25, 35)
-        ocr_notice = QLabel('🔒  ZAŠTIĆENI OCR IZVJEŠTAJI')
-        ocr_notice.setStyleSheet(f'color:{TEAL}; font-size:19px; font-weight:bold;')
-        ocr_description = QLabel(
-            'Ovaj modul bit će dostupan nakon implementacije OCR analize, '
-            'dodatne autentifikacije i kontrole pristupa.\n\n'
-            'Registracijske oznake ne prikazuju se u prometnim izvještajima.'
+        ocr_layout.setContentsMargins(25, 25, 25, 25)
+        ocr_layout.setSpacing(14)
+
+        ocr_title = QLabel("OCR IZVJE\u0160\u0106A")
+        ocr_title.setStyleSheet(
+            f"color:{TEAL}; font-size:19px; font-weight:bold;"
         )
-        ocr_description.setWordWrap(True)
-        ocr_description.setStyleSheet(f'color:{MUTED}; font-size:13px;')
-        ocr_layout.addWidget(ocr_notice)
-        ocr_layout.addWidget(ocr_description)
-        ocr_layout.addStretch()
-        self.tabs.addTab(ocr, 'OCR izvještaji')
+        ocr_layout.addWidget(ocr_title)
+
+        ocr_session_label = QLabel("ODABIR ANALIZE")
+        ocr_session_label.setStyleSheet(
+            f"color:{MUTED}; font-size:12px; font-weight:bold;"
+        )
+        ocr_layout.addWidget(ocr_session_label)
+
+        self.ocr_selector = QComboBox()
+        self.ocr_selector.setMinimumHeight(42)
+        self.ocr_selector.currentIndexChanged.connect(
+            lambda _: self.refresh_ocr_table()
+        )
+        ocr_layout.addWidget(self.ocr_selector)
+
+        self.ocr_mode = QComboBox()
+        self.ocr_mode.addItem("Javni prikaz", False)
+
+        from core.users import get_user_role
+        if get_user_role(self.username) == "admin":
+            self.ocr_mode.addItem("Interni prikaz", True)
+
+        self.ocr_mode.currentIndexChanged.connect(
+            lambda _: self.refresh_ocr_table()
+        )
+        ocr_layout.addWidget(self.ocr_mode)
+
+        # OCR statistika
+        self.ocr_stat_cards = []
+
+        ocr_stats_row = QHBoxLayout()
+        ocr_stats_row.setSpacing(12)
+
+        stat_definitions = [
+            ("UKUPNO PROLAZAKA", "#21B7B2"),
+            ("POTVR\u0110ENO", "#4F8DF7"),
+            ("ODBIJENO", "#E87991"),
+            ("NA PROVJERI", "#A78BFA"),
+        ]
+
+        for title, color in stat_definitions:
+            card = QFrame()
+            card.setMinimumHeight(100)
+            card.setStyleSheet(
+                "QFrame {"
+                "background:#1A3048;"
+                "border:1px solid #29445F;"
+                "border-left:4px solid " + color + ";"
+                "border-radius:9px;"
+                "}"
+            )
+
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(15, 12, 15, 12)
+
+            heading = QLabel(title)
+            heading.setStyleSheet(
+                "color:#9BB4C9; font-size:11px;"
+                "font-weight:bold; border:none;"
+            )
+
+            value = QLabel("0")
+            value.setStyleSheet(
+                "color:#F0F7FC; font-size:28px;"
+                "font-weight:bold; border:none;"
+            )
+
+            card_layout.addWidget(heading)
+            card_layout.addWidget(value)
+            card_layout.addStretch()
+
+            ocr_stats_row.addWidget(card)
+            self.ocr_stat_cards.append(value)
+
+        ocr_layout.addLayout(ocr_stats_row)
+
+        ocr_table_title = QLabel(
+            "DETALJNA EVIDENCIJA OCR O\u010cITANJA"
+        )
+        ocr_table_title.setStyleSheet(
+            "color:#EAF5FC; font-size:15px; font-weight:bold;"
+        )
+        ocr_layout.addWidget(ocr_table_title)
+
+
+        # Jedan PDF gumb prati odabrani OCR prikaz.
+        ocr_pdf_row = QHBoxLayout()
+        ocr_pdf_row.addStretch()
+
+        self.ocr_pdf_button = QPushButton()
+        self.ocr_pdf_button.setMinimumHeight(43)
+        self.ocr_pdf_button.setMinimumWidth(205)
+        self.ocr_pdf_button.setCursor(Qt.PointingHandCursor)
+        self.ocr_pdf_button.setStyleSheet("""
+            QPushButton {
+                background-color: #159B98;
+                color: #FFFFFF;
+                border: 1px solid #21B8B3;
+                border-radius: 8px;
+                padding: 10px 22px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #20B5AF;
+            }
+            QPushButton:pressed {
+                background-color: #117D7A;
+            }
+        """)
+
+        self.ocr_pdf_button.clicked.connect(
+            lambda: self.export_ocr_pdf(
+                bool(self.ocr_mode.currentData())
+            )
+        )
+
+        ocr_pdf_row.addWidget(self.ocr_pdf_button)
+        ocr_layout.addLayout(ocr_pdf_row)
+
+
+
+        self.ocr_mode.currentIndexChanged.connect(
+            lambda _: self.update_ocr_pdf_button()
+        )
+        self.update_ocr_pdf_button()
+
+        self.ocr_table = QTableWidget()
+        self.ocr_table.setColumnCount(7)
+        self.ocr_table.setHorizontalHeaderLabels([
+            "ID", "Vrijeme", "Vrsta vozila",
+            "Traka", "Smjer", "Registracija", "Status"
+        ])
+        self.ocr_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch
+        )
+        self.ocr_table.setEditTriggers(
+            QAbstractItemView.NoEditTriggers
+        )
+        self.ocr_table.setSelectionBehavior(
+            QAbstractItemView.SelectRows
+        )
+        self.ocr_table.setAlternatingRowColors(True)
+        self.ocr_table.verticalHeader().hide()
+        ocr_layout.addWidget(self.ocr_table)
+
+        self.ocr_info = QLabel("")
+        self.ocr_info.setStyleSheet(f"color:{MUTED};")
+        ocr_layout.addWidget(self.ocr_info)
+
+        self.tabs.addTab(
+            ocr, "OCR izvje\u0161taji"
+        )
+        self.selector.currentIndexChanged.connect(
+            lambda _: self.refresh_ocr_table()
+        )
+
+        self.tabs.currentChanged.connect(
+            lambda _: self.refresh_ocr_table()
+            if self.tabs.currentWidget() == ocr else None
+        )
         layout.addWidget(self.tabs)
         scroll.setWidget(content)
         outer.addWidget(scroll)
+
+    def update_ocr_pdf_button(self):
+        internal = bool(self.ocr_mode.currentData())
+
+        if internal:
+            self.ocr_pdf_button.setText(
+                "Izvezi interni PDF"
+            )
+        else:
+            self.ocr_pdf_button.setText(
+                "Izvezi javni PDF"
+            )
+
+    def export_ocr_pdf(self, internal):
+        from pathlib import Path
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        from core.ocr_pdf import export_ocr_pdf
+
+        sid = self.ocr_selector.currentData()
+
+        if sid is None:
+            QMessageBox.warning(
+                self, "RIVA", "Odaberi OCR sesiju."
+            )
+            return
+
+        mode = "interni" if internal else "javni"
+        filename = f"RIVA-{int(sid):06d}_OCR_{mode}.pdf"
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Spremi OCR izvjesce",
+            str(Path.home() / "Documents" / filename),
+            "PDF datoteke (*.pdf)"
+        )
+
+        if not path:
+            return
+
+        if not path.lower().endswith(".pdf"):
+            path += ".pdf"
+
+        try:
+            export_ocr_pdf(
+                path, self.username, sid, internal=internal
+            )
+        except Exception as exc:
+            QMessageBox.critical(
+                self, "RIVA | OCR PDF",
+                f"Izvoz nije uspio: {exc}"
+            )
+            return
+
+        # Evidencija uspjesno izvezenog OCR izvjestaja.
+        from core.audit import log_event
+
+        try:
+            log_event(
+                event_type=(
+                    "OCR_INTERNAL_EXPORTED"
+                    if internal else "OCR_PUBLIC_EXPORTED"
+                ),
+                username=self.username,
+                description=(
+                    "Uspjesno izvezen "
+                    + ("interni" if internal else "javni")
+                    + " OCR PDF. Sesija: "
+                    + str(sid)
+                    + "."
+                ),
+                status="SUCCESS"
+            )
+        except Exception as audit_error:
+            print(
+                "Upozorenje: OCR PDF je spremljen, ali "
+                "evidencija nije azurirana: "
+                + str(audit_error)
+            )
+
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("RIVA | Izvoz zavr\u0161en")
+        dialog.setFixedWidth(470)
+        dialog.setStyleSheet("""
+            QDialog {
+                background:#0B1627;
+                color:#EAF5FC;
+            }
+            QLabel {
+                color:#EAF5FC;
+                border:none;
+            }
+            QPushButton {
+                background:#159B98;
+                color:white;
+                border:none;
+                border-radius:8px;
+                padding:11px 25px;
+                font-weight:bold;
+                min-width:80px;
+            }
+            QPushButton:hover {
+                background:#20B5AF;
+            }
+        """)
+
+        content = QVBoxLayout(dialog)
+        content.setContentsMargins(28, 26, 28, 24)
+        content.setSpacing(17)
+
+        heading = QLabel(
+            "\u2713  PDF izvje\u0161\u0107e uspje\u0161no izra\u0111eno"
+        )
+        heading.setStyleSheet(
+            "color:#35D0C8; font-size:18px; font-weight:bold;"
+        )
+        content.addWidget(heading)
+
+        description = QLabel(
+            "Izvje\u0161\u0107e je spremljeno na lokaciju:"
+        )
+        description.setStyleSheet("color:#9BB4C9; font-size:12px;")
+        content.addWidget(description)
+
+        location = QLabel(str(path))
+        location.setWordWrap(True)
+        location.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        location.setStyleSheet("""
+            background:#1A3048;
+            border:1px solid #2D4862;
+            border-radius:8px;
+            padding:13px;
+            color:#EAF5FC;
+            font-size:11px;
+        """)
+        content.addWidget(location)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+
+        ok_button = QPushButton("U redu")
+        ok_button.clicked.connect(dialog.accept)
+        buttons.addWidget(ok_button)
+        content.addLayout(buttons)
+
+        dialog.exec()
+
+    def refresh_ocr_table(self):
+        """Osvjezi OCR podatke za odabranu sesiju."""
+        self.ocr_table.setRowCount(0)
+        for card in self.ocr_stat_cards:
+            card.setText("0")
+
+        session_id = self.ocr_selector.currentData()
+        if session_id is None:
+            self.ocr_info.setText("Nije odabrana sesija.")
+            return
+
+        internal = bool(self.ocr_mode.currentData())
+
+        try:
+            rows = get_ocr_report(
+                self.username,
+                session_id,
+                internal=internal
+            )
+        except Exception as exc:
+            self.ocr_info.setText(
+                "Greska pri ucitavanju OCR podataka: "
+                + str(exc)
+            )
+            return
+
+        statuses = {
+            "PENDING": "Na provjeri",
+            "CONFIRMED": "Potvrdjeno",
+            "REJECTED": "Odbijeno"
+        }
+
+        confirmed = sum(
+            r.get("review_status") == "CONFIRMED" for r in rows
+        )
+        rejected = sum(
+            r.get("review_status") == "REJECTED" for r in rows
+        )
+        pending = sum(
+            r.get("review_status") == "PENDING" for r in rows
+        )
+
+        for card, value in zip(
+            self.ocr_stat_cards,
+            [len(rows), confirmed, rejected, pending]
+        ):
+            card.setText(str(value))
+
+        self.ocr_table.setRowCount(len(rows))
+
+        for row_index, item in enumerate(rows):
+            values = [
+                item.get("id"),
+                fmt_date(item.get("counted_at")),
+                item.get("vehicle_type"),
+                item.get("lane"),
+                item.get("direction"),
+                item.get("registration_text"),
+                statuses.get(
+                    item.get("review_status"),
+                    "Nije obradjeno"
+                )
+            ]
+
+            for col_index, value in enumerate(values):
+                cell = QTableWidgetItem(
+                    str(value) if value is not None else "-"
+                )
+                self.ocr_table.setItem(
+                    row_index, col_index, cell
+                )
+
+        self.ocr_info.setText(
+            f"Ukupno prolazaka: {len(rows)} | "
+            + ("Interni prikaz" if internal else "Javni prikaz")
+        )
 
     def refresh_reports(self):
         previous = self.selector.currentData()
@@ -609,7 +988,31 @@ class ReportsPage(QWidget):
         self.selector.setCurrentIndex(idx if idx >= 0 else 0)
         self.selector.setEnabled(self.selector.currentData() is not None)
         self.selector.blockSignals(False)
+
+        self.ocr_selector.blockSignals(True)
+        previous_ocr = self.ocr_selector.currentData()
+        self.ocr_selector.clear()
+
+        for session in sessions:
+            sid = session.get("id")
+            if sid is None:
+                continue
+            code = session.get("session_code") or f"RIVA-{sid:06d}"
+            label = (
+                f"{code}  |  "
+                f"{fmt_date(session.get('started_at'))}  |  "
+                f"{session.get('username') or '-'}"
+            )
+            self.ocr_selector.addItem(label, sid)
+
+        index = self.ocr_selector.findData(previous_ocr)
+        self.ocr_selector.setCurrentIndex(
+            index if index >= 0 else 0
+        )
+        self.ocr_selector.blockSignals(False)
+
         self.load_selected()
+        self.refresh_ocr_table()
 
     def load_selected(self, *_):
         sid = self.selector.currentData()
@@ -702,7 +1105,7 @@ class ReportsPage(QWidget):
 
         try:
             log_event(
-                event_type="REPORT_GENERATED",
+                event_type="TRAFFIC_REPORT_EXPORTED",
                 username=self.username,
                 description=(
                     "Uspjesno izraden standardni prometni izvjestaj. "

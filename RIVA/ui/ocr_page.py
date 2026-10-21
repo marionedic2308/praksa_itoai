@@ -1,18 +1,33 @@
 import sqlite3
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
-    QGroupBox
+    QGroupBox, QComboBox
 )
 from core.sessions import DATABASE_PATH
 from core.ocr_runner import run_ocr_for_saved_photos
 
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+
+class OCRWorker(QThread):
+    finished_ocr = Signal(dict)
+    failed_ocr = Signal(str)
+
+    def run(self):
+        try:
+            result = run_ocr_for_saved_photos()
+            self.finished_ocr.emit(result)
+        except Exception as error:
+            self.failed_ocr.emit(
+                f"{type(error).__name__}: {error}"
+            )
 
 
 class OCRPage(QWidget):
@@ -58,6 +73,35 @@ class OCRPage(QWidget):
         )
         subtitle.setStyleSheet("color: #91A6BE; font-size: 12px;")
         layout.addWidget(subtitle)
+
+        session_row = QHBoxLayout()
+        session_title = QLabel("ODABIR SESIJE")
+        session_title.setStyleSheet(
+            "color:#91A6BE; font-size:12px; font-weight:bold;"
+        )
+        session_row.addWidget(session_title)
+
+        self.session_selector = QComboBox()
+        self.session_selector.setMinimumHeight(42)
+        self.session_selector.setStyleSheet("""
+            QComboBox {
+                background:#142438;
+                color:#E5F0F8;
+                border:1px solid #304760;
+                border-radius:8px;
+                padding:8px 14px;
+            }
+            QComboBox::drop-down {
+                border:none;
+                width:30px;
+            }
+        """)
+        session_row.addWidget(self.session_selector, 1)
+        layout.addLayout(session_row)
+
+        self.session_selector.currentIndexChanged.connect(
+            lambda _: self.refresh_data()
+        )
 
         stats = QHBoxLayout()
         self.total_label = QLabel("Prolasci: —")
@@ -155,10 +199,47 @@ class OCRPage(QWidget):
         self.refresh_data()
 
     def refresh_data(self):
+        from datetime import datetime
+
         selected_event = self.selected_event_id()
+        previous = self.session_selector.currentData()
+
         try:
             with sqlite3.connect(DATABASE_PATH) as conn:
-                rows = conn.execute("""
+                sessions = conn.execute("""
+                    SELECT id, session_code, started_at
+                    FROM traffic_sessions
+                    ORDER BY id DESC
+                """).fetchall()
+
+                self.session_selector.blockSignals(True)
+                self.session_selector.clear()
+
+                for sid, code, started in sessions:
+                    try:
+                        date = datetime.fromisoformat(
+                            str(started)
+                        ).strftime("%d.%m.%Y. %H:%M:%S")
+                    except (ValueError, TypeError):
+                        date = str(started or "-")
+
+                    self.session_selector.addItem(
+                        f"{code}  |  {date}", sid
+                    )
+
+                self.session_selector.addItem(
+                    "Sve sesije", "ALL"
+                )
+
+                index = self.session_selector.findData(previous)
+                self.session_selector.setCurrentIndex(
+                    index if index >= 0 else 0
+                )
+                self.session_selector.blockSignals(False)
+
+                selected_session = self.session_selector.currentData()
+
+                query = """
                     SELECT e.id, s.session_code, e.counted_at,
                            e.vehicle_type, e.lane, e.direction,
                            o.registration_text, o.confidence,
@@ -166,50 +247,82 @@ class OCRPage(QWidget):
                     FROM vehicle_events e
                     JOIN traffic_sessions s ON s.id = e.session_id
                     LEFT JOIN ocr_results o ON o.event_id = e.id
-                    ORDER BY e.id DESC
-                """).fetchall()
+                """
+                params = []
 
-                ocr_count = conn.execute(
-                    "SELECT COUNT(*) FROM ocr_results"
-                ).fetchone()[0]
-                pending_count = conn.execute("""
-                    SELECT COUNT(*) FROM ocr_results
-                    WHERE review_status = 'PENDING'
-                """).fetchone()[0]
+                if selected_session not in (None, "ALL"):
+                    query += " WHERE e.session_id = ?"
+                    params.append(selected_session)
+
+                query += " ORDER BY e.id DESC"
+                rows = conn.execute(query, params).fetchall()
 
             self.table.setRowCount(0)
             for row_data in rows:
                 row = self.table.rowCount()
                 self.table.insertRow(row)
+
                 for col, value in enumerate(row_data):
-                    if col == 7 and value is not None:
+                    if col == 2 and value:
+                        try:
+                            text = datetime.fromisoformat(
+                                str(value)
+                            ).strftime("%d.%m.%Y. %H:%M:%S")
+                        except (ValueError, TypeError):
+                            text = str(value)
+                    elif col == 7 and value is not None:
                         text = f"{float(value) * 100:.1f}%"
+                    elif col == 8:
+                        labels = {
+                            "PENDING": "Treba potvrda",
+                            "CONFIRMED": "Potvr\u0111eno",
+                            "REJECTED": "Nije potvr\u0111eno",
+                        }
+                        text = labels.get(value, "Nije obra\u0111eno")
                     else:
-                        text = "—" if value is None else str(value)
+                        text = "\u2014" if value is None else str(value)
+
                     item = QTableWidgetItem(text)
                     if col == 0:
                         item.setData(Qt.UserRole, int(row_data[0]))
                     self.table.setItem(row, col, item)
 
+            ocr_count = sum(r[8] is not None for r in rows)
+            pending_count = sum(r[8] == "PENDING" for r in rows)
+
             self.total_label.setText(f"Prolasci: {len(rows)}")
             self.ocr_label.setText(f"OCR zapisi: {ocr_count}")
-            self.pending_label.setText(f"Čeka provjeru: {pending_count}")
-            self.status_label.setText("Podaci učitani iz lokalne baze.")
+            self.pending_label.setText(
+                f"\u010ceka provjeru: {pending_count}"
+            )
+            self.status_label.setText(
+                "Podaci u\u010ditani iz lokalne baze."
+            )
 
+            restored = False
             if selected_event is not None:
                 for row in range(self.table.rowCount()):
                     if int(self.table.item(row, 0).text()) == selected_event:
                         self.table.selectRow(row)
+                        restored = True
                         break
-            if self.table.currentRow() < 0 and self.table.rowCount():
+
+            if not restored and self.table.rowCount():
                 self.table.selectRow(0)
 
             if not rows:
-                self.photo_label.setText("Još nema evidentiranih prolazaka.")
-                self.photo_info.setText("Pokreni analizu vozila pa osvježi podatke.")
+                self.photo_label.clear()
+                self.photo_label.setText(
+                    "Nema evidentiranih prolazaka za ovu sesiju."
+                )
+                self.photo_info.setText(
+                    "Odaberi drugu sesiju ili pokreni novu analizu."
+                )
+
         except Exception as error:
             self.status_label.setText(
-                f"Učitavanje nije uspjelo: {type(error).__name__}"
+                f"U\u010ditavanje nije uspjelo: "
+                f"{type(error).__name__}: {error}"
             )
 
     def selected_event_id(self):
@@ -221,80 +334,117 @@ class OCRPage(QWidget):
     def show_selected_photos(self):
         event_id = self.selected_event_id()
         row = self.table.currentRow()
+
         if event_id is None:
             return
 
         session_code = self.table.item(row, 1).text()
         folder = ROOT / "data" / "sessions" / session_code / "ocr"
-        patterns = [
-            f"event_{event_id:08d}_*_plocica.jpg",
-            f"event_{event_id:08d}_kandidat_*.jpg",
-        ]
-        photos = []
-        for subfolder in ("plocice", "kandidati"):
-            directory = folder / subfolder
-            for pattern in patterns:
-                photos.extend(directory.glob(pattern))
 
-        photos = sorted(set(photos))
-        if not photos:
-            self.photo_label.setPixmap(QPixmap())
-            self.photo_label.setText("Fotografija nije pronađena.")
-            self.photo_info.setText(
-                f"Prolazak {event_id} · sesija {session_code}"
-            )
-            return
+        plate_folder = folder / "plocice"
+        candidate_folder = folder / "kandidati"
 
-        pixmap = QPixmap(str(photos[0]))
+        best_plate = plate_folder / (
+            f"event_{event_id:08d}_najbolja_plocica.jpg"
+        )
+
+        if best_plate.is_file():
+            selected_photo = best_plate
+        else:
+            plates = list(plate_folder.glob(
+                f"event_{event_id:08d}_*_plocica.jpg"
+            ))
+            candidates = list(candidate_folder.glob(
+                f"event_{event_id:08d}_kandidat_*.jpg"
+            ))
+
+            photos = plates if plates else candidates
+
+            if not photos:
+                self.photo_label.setPixmap(QPixmap())
+                self.photo_label.setText("Fotografija nije prona?ena.")
+                self.photo_info.setText(
+                    f"Prolazak {event_id} ? sesija {session_code}"
+                )
+                return
+
+            def photo_quality(photo):
+                import cv2
+                image = cv2.imread(str(photo))
+                if image is None:
+                    return -1
+
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                sharpness = cv2.Laplacian(
+                    gray, cv2.CV_64F
+                ).var()
+
+                height, width = image.shape[:2]
+                return sharpness + (width * height) / 1000
+
+            selected_photo = max(photos, key=photo_quality)
+
+        pixmap = QPixmap(str(selected_photo))
+
         if pixmap.isNull():
-            self.photo_label.setText("Fotografiju nije moguće prikazati.")
+            self.photo_label.setPixmap(QPixmap())
+            self.photo_label.setText(
+                "Fotografiju nije mogu?e prikazati."
+            )
             return
 
         self.photo_label.setText("")
         self.photo_label.setPixmap(
             pixmap.scaled(
-                600, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                self.photo_label.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
             )
         )
+
         self.photo_info.setText(
-            f"Prolazak {event_id} · {len(photos)} fotografija · "
-            f"Prikaz: {photos[0].name}"
+            f"Prolazak {event_id} \u00b7 automatski odabrana fotografija"
         )
+
 
     def run_ocr(self):
+        if getattr(self, "ocr_worker", None) is not None:
+            if self.ocr_worker.isRunning():
+                return
+
         self.ocr_button.setEnabled(False)
         self.refresh_button.setEnabled(False)
-        self.status_label.setText(
-            "OCR obrada u tijeku. Prva obrada moze potrajati..."
-        )
-        from PySide6.QtWidgets import QApplication
-        QApplication.processEvents()
+        self.confirm_button.setEnabled(False)
+        self.reject_button.setEnabled(False)
+        self.status_label.setText("OCR obrada u tijeku...")
 
-        try:
-            stats = run_ocr_for_saved_photos()
-            self.refresh_data()
-            self.status_label.setText(
-                f"Obrada zavrsena. Fotografija: {stats['photos']} | "
-                f"Spremljeno: {stats['saved']} | "
-                f"Bez valjanog teksta: {stats['no_text']} | "
-                f"Vec postojeci: {stats['existing']} | "
-                f"Greske: {stats['errors']}"
-            )
-            QMessageBox.information(
-                self, "OCR obrada",
-                self.status_label.text()
-            )
-        except Exception as error:
-            self.status_label.setText(
-                f"OCR obrada nije uspjela: {type(error).__name__}"
-            )
-            QMessageBox.critical(
-                self, "OCR obrada",
-                self.status_label.text()
-            )
-        finally:
-            self.ocr_button.setEnabled(True)
-            self.refresh_button.setEnabled(True)
+        self.ocr_worker = OCRWorker(self)
+        self.ocr_worker.finished_ocr.connect(self.on_ocr_finished)
+        self.ocr_worker.failed_ocr.connect(self.on_ocr_failed)
+        self.ocr_worker.finished.connect(self.on_ocr_thread_finished)
+        self.ocr_worker.start()
+
+    def on_ocr_finished(self, stats):
+        self.refresh_data()
+        message = (
+            f"Obrada zavrsena. Fotografija: {stats['photos']} | "
+            f"Spremljeno: {stats['saved']} | "
+            f"Bez teksta: {stats['no_text']} | "
+            f"Postojeci: {stats['existing']} | "
+            f"Greske: {stats['errors']}"
+        )
+        self.status_label.setText(message)
+        QMessageBox.information(self, "OCR obrada", message)
+
+    def on_ocr_failed(self, error):
+        self.status_label.setText(f"OCR greska: {error}")
+        QMessageBox.critical(self, "OCR obrada", str(error))
+
+    def on_ocr_thread_finished(self):
+        self.ocr_button.setEnabled(True)
+        self.refresh_button.setEnabled(True)
+        self.confirm_button.setEnabled(True)
+        self.reject_button.setEnabled(True)
 
     def set_review_status(self, status):
         event_id = self.selected_event_id()
