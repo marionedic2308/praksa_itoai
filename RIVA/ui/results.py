@@ -258,6 +258,7 @@ class ResultsPage(QWidget):
 
         self.session_selector.blockSignals(True)
         self.session_selector.clear()
+        self.session_selector.addItem("Odaberite analizu za prikaz rezultata...", None)
         for session in sessions:
             session_id = session.get("id")
             code = session.get("session_code") or f"RIVA-{int(session_id):06d}"

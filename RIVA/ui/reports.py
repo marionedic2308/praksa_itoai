@@ -988,6 +988,9 @@ class ReportsPage(QWidget):
             return
         self.selector.blockSignals(True)
         self.selector.clear()
+        self.selector.addItem(
+            "Odaberite analizu za prikaz izvjestaja...", None
+        )
         for session in sessions:
             sid = session.get('id')
             if sid is None:
@@ -999,12 +1002,15 @@ class ReportsPage(QWidget):
             self.selector.addItem('Nema dostupnih analiza', None)
         idx = self.selector.findData(previous)
         self.selector.setCurrentIndex(idx if idx >= 0 else 0)
-        self.selector.setEnabled(self.selector.currentData() is not None)
+        self.selector.setEnabled(bool(sessions))
         self.selector.blockSignals(False)
 
         self.ocr_selector.blockSignals(True)
         previous_ocr = self.ocr_selector.currentData()
         self.ocr_selector.clear()
+        self.ocr_selector.addItem(
+            "Odaberite sesiju za OCR izvjestaj...", None
+        )
 
         for session in sessions:
             sid = session.get("id")
