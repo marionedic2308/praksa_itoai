@@ -528,6 +528,10 @@ class OCRPage(QWidget):
                 self.session_selector.blockSignals(True)
                 self.session_selector.clear()
 
+                self.session_selector.addItem(
+                    "Odaberite sesiju za pocetak rada...", None
+                )
+
                 for sid, code, started in sessions:
                     try:
                         date = datetime.fromisoformat(
@@ -551,6 +555,25 @@ class OCRPage(QWidget):
                 self.session_selector.blockSignals(False)
 
                 selected_session = self.session_selector.currentData()
+
+                if selected_session is None:
+                    self.table.setRowCount(0)
+                    self.total_label.setText("Prolasci: \u2014")
+                    self.ocr_label.setText("OCR zapisi: \u2014")
+                    self.pending_label.setText(
+                        "\u010ceka provjeru: \u2014"
+                    )
+                    self.photo_label.setPixmap(QPixmap())
+                    self.photo_label.setText(
+                        "Spremno za OCR analizu"
+                    )
+                    self.photo_info.setText(
+                        "Odaberite sesiju za prikaz fotografija."
+                    )
+                    self.status_label.setText(
+                        "Sustav je spreman. Odaberite sesiju za pocetak rada."
+                    )
+                    return
 
                 query = """
                     SELECT e.id, s.session_code, e.counted_at,
