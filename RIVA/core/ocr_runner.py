@@ -92,6 +92,7 @@ def run_ocr_for_saved_photos():
         best = None
         best_plate = None
         best_photo = None
+        best_quality = None
 
         for photo in photos:
             try:
@@ -165,10 +166,34 @@ def run_ocr_for_saved_photos():
 
                         candidate = (confidence, value)
 
-                        if best is None or candidate[0] > best[0]:
+                        # Quality is evaluated only after OCR succeeds.
+                        gray = cv2.cvtColor(plate, cv2.COLOR_BGR2GRAY)
+                        sharpness = float(
+                            cv2.Laplacian(gray, cv2.CV_64F).var()
+                        )
+                        plate_h, plate_w = plate.shape[:2]
+                        area = plate_w * plate_h
+
+                        # Larger and sharper plates are preferred when
+                        # OCR confidence differs by no more than 2%.
+                        quality = (
+                            min(area, 50000) / 50000.0
+                            + min(sharpness, 1000.0) / 1000.0
+                        )
+
+                        choose = best is None
+                        if best is not None:
+                            difference = confidence - best[0]
+                            if difference > 0.02:
+                                choose = True
+                            elif abs(difference) <= 0.02:
+                                choose = quality > best_quality
+
+                        if choose:
                             best = candidate
                             best_plate = plate.copy()
                             best_photo = photo
+                            best_quality = quality
 
             except Exception as exc:
                 stats["errors"] += 1

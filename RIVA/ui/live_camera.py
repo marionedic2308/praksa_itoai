@@ -100,6 +100,43 @@ def draw_lanes(frame, lanes):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA)
 
 
+
+class LatestFrameReader:
+    def __init__(self, capture):
+        import threading
+        self.capture = capture
+        self.lock = threading.Lock()
+        self.running = True
+        self.frame = None
+        self.sequence = 0
+        self.thread = threading.Thread(
+            target=self._read_loop,
+            daemon=True
+        )
+        self.thread.start()
+
+    def _read_loop(self):
+        while self.running:
+            ok, frame = self.capture.read()
+            if not ok:
+                self.running = False
+                break
+            with self.lock:
+                self.frame = frame
+                self.sequence += 1
+
+    def read_latest(self, last_sequence):
+        with self.lock:
+            if self.sequence == last_sequence or self.frame is None:
+                return None, last_sequence
+            return self.frame.copy(), self.sequence
+
+    def stop(self):
+        self.running = False
+        self.capture.release()
+        self.thread.join(timeout=2.0)
+
+
 class VideoWorker(QThread):
     frame_ready = Signal(QImage)
     raw_frame_ready = Signal(object)
@@ -144,7 +181,18 @@ class VideoWorker(QThread):
 
             if not self.running:
                 return
-            capture = cv2.VideoCapture(self.connection_source)
+            if not self.is_file:
+                import os
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+                capture = cv2.VideoCapture(
+                    self.connection_source,
+                    cv2.CAP_FFMPEG
+                )
+            else:
+                capture = cv2.VideoCapture(self.connection_source)
+            if not self.is_file:
+                # Pokusaj smanjiti kasnjenje RTSP streama.
+                capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             if not capture.isOpened():
                 raise RuntimeError("Videoizvor nije otvoren")
 
@@ -153,6 +201,10 @@ class VideoWorker(QThread):
                 fps = 25.0
             frame_interval = 1.0 / fps
             frame_index = 0
+            rtsp_reader = None
+            rtsp_sequence = 0
+            if not self.is_file:
+                rtsp_reader = LatestFrameReader(capture)
             start_wall_time = datetime.now().astimezone()
             self.status_changed.emit("POVEZANO")
 
@@ -161,10 +213,22 @@ class VideoWorker(QThread):
                     self.msleep(40)
                     continue
                 started = time.monotonic()
-                success, original = capture.read()
-                if not success:
-                    reached_eof = True
-                    break
+                if rtsp_reader is not None:
+                    original, rtsp_sequence = rtsp_reader.read_latest(
+                        rtsp_sequence
+                    )
+                    if original is None:
+                        if not rtsp_reader.running:
+                            reached_eof = True
+                            break
+                        self.msleep(5)
+                        continue
+                    success = True
+                else:
+                    success, original = capture.read()
+                    if not success:
+                        reached_eof = True
+                        break
                 frame_index += 1
                 height, width = original.shape[:2]
                 self.raw_frame_ready.emit(original.copy())
@@ -264,6 +328,7 @@ class VideoWorker(QThread):
 
                 if lanes:
                     draw_lanes(output, lanes)
+
                 rgb = cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
                 h, w, _ = rgb.shape
                 image = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
@@ -287,6 +352,8 @@ class VideoWorker(QThread):
                 )
             self.error_occurred.emit(message)
         finally:
+            if "rtsp_reader" in locals() and rtsp_reader is not None:
+                rtsp_reader.stop()
             if session_id is not None and "ocr_upravitelj" in locals():
                 ocr_upravitelj.ocisti()
             if session_id is not None:

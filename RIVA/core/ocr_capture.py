@@ -1,4 +1,4 @@
-﻿"""Priprema OCR podataka za pojedinu RIVA sesiju."""
+"""Priprema OCR podataka za pojedinu RIVA sesiju."""
 
 from pathlib import Path
 
@@ -98,14 +98,6 @@ class UpraviteljOCRKandidata:
 
         if sirina < 80 or visina < 60:
             return False
-
-        omjer = min(640 / sirina, 480 / visina, 1.0)
-
-        if omjer < 1.0:
-            crop = cv2.resize(
-                crop, None, fx=omjer, fy=omjer,
-                interpolation=cv2.INTER_AREA
-            )
 
         ocjena = ocijeni_fotografiju(crop)
 

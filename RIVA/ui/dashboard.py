@@ -1,4 +1,21 @@
 
+# RIVA_OCR_RUN_COUNTER_V1
+def get_ocr_run_count():
+    import sqlite3
+    from core.sessions import DATABASE_PATH
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ocr_run_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        return conn.execute(
+            "SELECT COUNT(*) FROM ocr_run_history"
+        ).fetchone()[0]
+
+
+
 from datetime import datetime
 
 from PySide6.QtCore import Qt, Signal
@@ -410,9 +427,9 @@ class DashboardPage(QWidget):
                 "#5DD9D0"
             ),
             (
-                "OCR OČITANJA",
+                "OCR OBRADE",
                 self.ocr_value,
-                "Uspješno očitane registracije",
+                "Ukupno pokrenutih OCR analiza",
                 "◎",
                 "#7FA8FF"
             ),
@@ -1103,7 +1120,7 @@ class DashboardPage(QWidget):
             )
 
             self.ocr_value.setText(
-                str(stats["total_ocr_success"])
+                str(get_ocr_run_count())
             )
 
             self.sessions_value.setText(

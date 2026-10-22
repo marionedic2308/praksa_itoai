@@ -133,37 +133,70 @@ class LoginVisual(QWidget):
             QPointF(road.right() - 5, road.center().y())
         )
 
-        # Vozilo prolazi u jednom smjeru.
-        # Novi ciklus pocinje ulaskom novog vozila.
-        travel = min(1.0, t * 1.35)
-        cx = road.left() - 40 + travel * (road.width() + 90)
-        cy = road.top() + road.height() * 0.27
+        # RIVA_LANE_FIX_V1
+        # Two lanes with a vehicle centered inside L1.
+        lane_height = road.height() / 2.0
 
-        car = QRectF(cx - 43, cy - 21, 86, 42)
+        # Lane labels remain visible and do not overlap the car.
+        self.label(
+            p,
+            QRectF(road.left() + 12, road.top() + 9, 45, 18),
+            "L2", 10, "#8DAFF5", True
+        )
+        self.label(
+            p,
+            QRectF(road.left() + 12,
+                   road.center().y() + 9, 45, 18),
+            "L1", 10, "#5DD9D0", True
+        )
+
+        # Car dimensions adapt to the lane height.
+        car_h = max(15.0, min(34.0, lane_height * 0.56))
+        car_w = car_h * 2.05
+
+        travel = min(1.0, t * 1.35)
+        cx = road.left() - car_w + travel * (
+            road.width() + car_w * 2
+        )
+        cy = road.top() + lane_height * 1.5
+
+        car = QRectF(
+            cx - car_w / 2,
+            cy - car_h / 2,
+            car_w,
+            car_h
+        )
 
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(0, 0, 0, 65))
         p.drawRoundedRect(
-            car.translated(3, 4), 12, 12
+            car.translated(3, 3), 9, 9
         )
 
         p.setBrush(QColor("#398FC5"))
         p.setPen(QPen(QColor("#B5DDEB"), 1))
-        p.drawRoundedRect(car, 12, 12)
+        p.drawRoundedRect(car, 9, 9)
 
         p.setPen(Qt.NoPen)
         p.setBrush(QColor("#A6D8E9"))
         p.drawRoundedRect(
-            QRectF(cx - 15, cy - 16, 34, 32),
-            5, 5
+            QRectF(
+                cx - car_w * 0.15,
+                cy - car_h * 0.37,
+                car_w * 0.40,
+                car_h * 0.74
+            ),
+            4, 4
         )
 
         p.setBrush(QColor("#FFE8AD"))
         p.drawEllipse(
-            QPointF(cx + 37, cy - 12), 3, 3
+            QPointF(cx + car_w * 0.43,
+                    cy - car_h * 0.28), 2.5, 2.5
         )
         p.drawEllipse(
-            QPointF(cx + 37, cy + 12), 3, 3
+            QPointF(cx + car_w * 0.43,
+                    cy + car_h * 0.28), 2.5, 2.5
         )
 
         # AI detekcija prati vozilo.
