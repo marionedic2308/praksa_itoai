@@ -148,7 +148,7 @@ def export_ocr_pdf(path, username, session_id, internal=False):
     metrics = [
         ("UKUPNO PROLAZAKA", len(rows), TEAL),
         ("POTVR\u0110ENO", confirmed, BLUE),
-        ("ODBIJENO", rejected, PINK),
+        ("RU\u010cNO ODBA\u010cENO", rejected, PINK),
         ("NA PROVJERI", pending, PURPLE),
     ]
     cards = Table(
@@ -206,7 +206,7 @@ def export_ocr_pdf(path, username, session_id, internal=False):
     counts = [confirmed, rejected, pending, unprocessed]
     palette = [BLUE, PINK, PURPLE, MUTED]
     labels = [
-        "Potvr\u0111eno", "Odbijeno",
+        "Potvr\u0111eno", "Ru\u010dno odba\u010deno",
         "Na provjeri", "Bez OCR-a"
     ]
     total = len(rows)
@@ -240,20 +240,45 @@ def export_ocr_pdf(path, username, session_id, internal=False):
             textAnchor="middle", fillColor=MUTED
         ))
 
+
+    # Legenda s bojama uskladjenim s kruznim grafikonom.
     legend_data = []
+
     for label, count, color in zip(labels, counts, palette):
         pct = round(count * 100 / total) if total else 0
+
         legend_data.append([
+            "",
             text(label),
             text(f"{count} ({pct}%)")
         ])
 
-    legend = Table(legend_data, colWidths=[155, 125])
-    legend.setStyle(TableStyle([
+    legend = Table(
+        legend_data,
+        colWidths=[18, 157, 105],
+        rowHeights=[32] * len(legend_data)
+    )
+
+    legend_style = [
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (2, 0), (2, -1), "RIGHT"),
+        ("LEFTPADDING", (0, 0), (0, -1), 2),
+        ("RIGHTPADDING", (0, 0), (0, -1), 4),
+        ("LEFTPADDING", (1, 0), (1, -1), 7),
         ("TOPPADDING", (0, 0), (-1, -1), 7),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-    ]))
+    ]
+
+    for i, color in enumerate(palette):
+        legend_style.append(
+            ("BACKGROUND", (0, i), (0, i), color)
+        )
+        legend_style.append(
+            ("LINEBELOW", (0, i), (0, i), 8, WHITE)
+        )
+
+    legend.setStyle(TableStyle(legend_style))
+
     chart_row = Table([[chart, legend]], colWidths=[210, 302])
     chart_row.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -308,8 +333,15 @@ def export_ocr_pdf(path, username, session_id, internal=False):
 
     statuses = {
         "CONFIRMED": "Potvr\u0111eno",
-        "REJECTED": "Odbijeno",
+        "REJECTED": "Ručno odbačeno",
         "PENDING": "Na provjeri",
+    }
+    sources = {
+        "MANUAL_ENTRY": "Ručni unos",
+        "MANUAL_CORRECTION": "Ručna korekcija",
+        "MANUAL_CONFIRMATION": "Ručna potvrda",
+        "MANUAL_REJECTION": "Ručna odluka",
+        "OCR": "OCR",
     }
 
     for row in rows:
@@ -318,10 +350,14 @@ def export_ocr_pdf(path, username, session_id, internal=False):
             text(_date(row.get("counted_at"))),
             text(row.get("vehicle_type")),
             text(row.get("lane")),
-            text(row.get("registration_text")),
-            text(statuses.get(
-                row.get("review_status"), "Bez OCR-a"
-            )),
+            text(
+                "Odbačeno"
+                if row.get("review_status") == "REJECTED"
+                else row.get("registration_text")
+            ),
+            text((statuses.get(row.get("review_status"), "Bez OCR-a")
+                  + " / " + sources.get(row.get("entry_source"), "OCR"))
+                 if row.get("review_status") else "Bez OCR-a"),
         ])
 
     table = Table(

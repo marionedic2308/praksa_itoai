@@ -7,6 +7,7 @@ import hmac
 import os
 import sqlite3
 
+from core.ocr_database import initialize_manual_ocr
 from core.sessions import DATABASE_PATH
 from core.users import get_user_role
 
@@ -60,6 +61,7 @@ def get_ocr_report(username, session_id, internal=False):
             "Interna OCR izvjesca dostupna su samo administratoru."
         )
 
+    initialize_manual_ocr()
     with sqlite3.connect(DATABASE_PATH) as conn:
         conn.row_factory = sqlite3.Row
 
@@ -67,7 +69,7 @@ def get_ocr_report(username, session_id, internal=False):
             SELECT e.id, e.counted_at, e.vehicle_type,
                    e.lane, e.direction,
                    o.registration_text, o.confidence,
-                   o.review_status
+                    o.review_status, o.entry_source
             FROM vehicle_events e
             LEFT JOIN ocr_results o ON o.event_id = e.id
             WHERE e.session_id = ?
@@ -78,6 +80,11 @@ def get_ocr_report(username, session_id, internal=False):
 
     for row in rows:
         item = dict(row)
+
+        if item["review_status"] == "REJECTED":
+            item["registration_text"] = None
+            item["confidence"] = None
+
 
         if not internal:
             item["registration_text"] = pseudonymize_plate(

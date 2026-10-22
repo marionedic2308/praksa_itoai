@@ -6,10 +6,12 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
-    QGroupBox, QComboBox
+    QGroupBox, QComboBox, QLineEdit, QFrame, QGridLayout, QScrollArea
 )
 from core.sessions import DATABASE_PATH
 from core.ocr_runner import run_ocr_for_saved_photos
+from core.ocr_database import initialize_manual_ocr, save_manual_registration, save_review_decision
+from core.audit import log_event
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -33,6 +35,7 @@ class OCRWorker(QThread):
 class OCRPage(QWidget):
     def __init__(self):
         super().__init__()
+        initialize_manual_ocr()
         self.setStyleSheet("""
             QWidget { background: #0B1423; color: #E5F0F8; }
             QLabel { color: #E5F0F8; }
@@ -140,10 +143,11 @@ class OCRPage(QWidget):
             header.resizeSection(column, width)
         header.setSectionResizeMode(8, QHeaderView.Stretch)
         self.table.itemSelectionChanged.connect(self.show_selected_photos)
+        self.table.itemSelectionChanged.connect(self.sync_manual_plate)
         layout.addWidget(self.table, 3)
 
         lower = QHBoxLayout()
-        lower.setSpacing(18)
+        lower.setSpacing(24)
 
         photo_group = QGroupBox("Fotografija odabranog prolaska")
         photo_layout = QVBoxLayout(photo_group)
@@ -162,10 +166,50 @@ class OCRPage(QWidget):
         lower.addWidget(photo_group, 2)
 
         actions = QVBoxLayout()
-        actions.setSpacing(12)
+        actions.setSpacing(15)
         self.refresh_button = QPushButton("Osvježi podatke")
+        # RIVA_STYLE_REFRESH_BUTTON
+        self.refresh_button.setStyleSheet('''
+            QPushButton {
+                background-color: #203E52;
+                color: #F0F8FC;
+                border: 1px solid #3B657D;
+                border-radius: 9px;
+                padding: 11px 14px;
+                font-size: 12px;
+                font-weight: 600;
+                min-height: 23px;
+            }
+            QPushButton:hover {
+                background-color: #2B5067;
+            }
+            QPushButton:disabled {
+                background-color: #233342;
+                color: #71899B;
+            }
+        ''')
         self.refresh_button.clicked.connect(self.refresh_data)
         self.ocr_button = QPushButton("Pokreni OCR analizu spremljenih fotografija")
+        # RIVA_STYLE_OCR_BUTTON
+        self.ocr_button.setStyleSheet('''
+            QPushButton {
+                background-color: #176B73;
+                color: #F0F8FC;
+                border: 1px solid #2BA6AA;
+                border-radius: 9px;
+                padding: 11px 14px;
+                font-size: 12px;
+                font-weight: 600;
+                min-height: 23px;
+            }
+            QPushButton:hover {
+                background-color: #20858C;
+            }
+            QPushButton:disabled {
+                background-color: #233342;
+                color: #71899B;
+            }
+        ''')
         self.ocr_button.clicked.connect(self.run_ocr)
         self.ocr_button.setMinimumHeight(48)
         actions.addWidget(self.ocr_button)
@@ -173,6 +217,26 @@ class OCRPage(QWidget):
         actions.addWidget(self.refresh_button)
 
         self.confirm_button = QPushButton("Potvrdi očitanje")
+        # RIVA_STYLE_CONFIRM_BUTTON
+        self.confirm_button.setStyleSheet('''
+            QPushButton {
+                background-color: #176B59;
+                color: #F0F8FC;
+                border: 1px solid #2CA080;
+                border-radius: 9px;
+                padding: 11px 14px;
+                font-size: 12px;
+                font-weight: 600;
+                min-height: 23px;
+            }
+            QPushButton:hover {
+                background-color: #20846D;
+            }
+            QPushButton:disabled {
+                background-color: #233342;
+                color: #71899B;
+            }
+        ''')
         self.confirm_button.clicked.connect(
             lambda: self.set_review_status("CONFIRMED")
         )
@@ -180,20 +244,269 @@ class OCRPage(QWidget):
         actions.addWidget(self.confirm_button)
 
         self.reject_button = QPushButton("Odbaci očitanje")
+        # RIVA_STYLE_REJECT_BUTTON
+        self.reject_button.setStyleSheet('''
+            QPushButton {
+                background-color: #713B47;
+                color: #F0F8FC;
+                border: 1px solid #A65768;
+                border-radius: 9px;
+                padding: 11px 14px;
+                font-size: 12px;
+                font-weight: 600;
+                min-height: 23px;
+            }
+            QPushButton:hover {
+                background-color: #884654;
+            }
+            QPushButton:disabled {
+                background-color: #233342;
+                color: #71899B;
+            }
+        ''')
         self.reject_button.clicked.connect(
             lambda: self.set_review_status("REJECTED")
         )
         self.reject_button.setMinimumHeight(44)
         actions.addWidget(self.reject_button)
 
-        actions.addStretch()
+        manual_label = QLabel("RU\u010cNI UNOS / KOREKCIJA")
+        manual_label.setStyleSheet("color:#91A6BE; font-weight:bold; font-size:11px;")
+        actions.addWidget(manual_label)
+        self.manual_plate_input = QLineEdit()
+        # RIVA_MANUAL_INPUT_STYLE
+        self.manual_plate_input.setStyleSheet('''
+            QLineEdit {
+                background: #13283D;
+                color: #F0F8FC;
+                border: 1px solid #3A6077;
+                border-radius: 9px;
+                padding: 10px 13px;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #37D5C7;
+            }
+        ''')
+        self.manual_plate_input.setPlaceholderText("Npr. A12-B-345")
+        self.manual_plate_input.setMaxLength(16)
+        self.manual_plate_input.setMinimumHeight(40)
+        self.manual_plate_input.setStyleSheet(
+            "QLineEdit {background:#142438; color:#E5F0F8; "
+            "border:1px solid #304760; border-radius:7px; padding:8px;}"
+        )
+        actions.addWidget(self.manual_plate_input)
+        self.manual_save_button = QPushButton("Spremi oznaku")
+        self.manual_save_button.setMinimumHeight(44)
+        self.manual_save_button.clicked.connect(self.save_manual_plate)
+        actions.addWidget(self.manual_save_button)
+
+        # RIVA_OCR_CARD_LAYOUT_V2
+        # Existing buttons and signal connections are preserved.
+        while actions.count():
+            actions.takeAt(0)
+
+        cards = QGridLayout()
+        cards.setHorizontalSpacing(12)
+        cards.setVerticalSpacing(12)
+        cards.setColumnStretch(0, 1)
+        cards.setColumnStretch(1, 1)
+
+        def make_card(title, description, button, color):
+            card = QFrame()
+            card.setObjectName("ocrActionCard")
+            card.setMinimumHeight(125)
+            card.setStyleSheet("""
+                QFrame#ocrActionCard {
+                    background-color: #16273D;
+                    border: 1px solid #304760;
+                    border-radius: 13px;
+                }
+                QFrame#ocrActionCard QLabel {
+                    background: transparent;
+                    border: none;
+                }
+            """)
+
+            body = QVBoxLayout(card)
+            body.setContentsMargins(14, 13, 14, 13)
+            body.setSpacing(7)
+
+            heading = QLabel(title)
+            heading.setWordWrap(True)
+            heading.setStyleSheet(
+                "color:#EAF5FC; font-size:12px; font-weight:bold;"
+            )
+            body.addWidget(heading)
+
+            detail = QLabel(description)
+            detail.setWordWrap(True)
+            detail.setStyleSheet("color:#91A6BE; font-size:11px;")
+            body.addWidget(detail)
+
+            body.addStretch(1)
+
+            button.setMinimumHeight(38)
+            button.setMaximumHeight(42)
+            button.setStyleSheet("""
+                QPushButton {
+                    background-color: %s;
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    padding: 7px 9px;
+                    font-size: 11px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    border: 1px solid #5DD9D0;
+                }
+                QPushButton:disabled {
+                    background-color: #26394B;
+                    color: #8798A8;
+                }
+            """ % color)
+            body.addWidget(button)
+
+            return card
+
+        cards.addWidget(make_card(
+            "OCR ANALIZA",
+            "Obrada spremljenih fotografija",
+            self.ocr_button, "#176B73"
+        ), 0, 0)
+
+        cards.addWidget(make_card(
+            "OSVJE\u017dAVANJE",
+            "U\u010ditaj najnovije rezultate",
+            self.refresh_button, "#31536A"
+        ), 0, 1)
+
+        cards.addWidget(make_card(
+            "POTVRDA O\u010cITANJA",
+            "Potvrdi odabranu registraciju",
+            self.confirm_button, "#176B59"
+        ), 1, 0)
+
+        cards.addWidget(make_card(
+            "ODBACIVANJE",
+            "Odbaci odabrano o\u010ditanje",
+            self.reject_button, "#713B47"
+        ), 1, 1)
+
+        actions.addLayout(cards)
+
+        manual_card = QFrame()
+        manual_card.setObjectName("ocrManualCard")
+        manual_card.setMinimumHeight(164)
+        manual_card.setStyleSheet("""
+            QFrame#ocrManualCard {
+                background-color: #16273D;
+                border: 1px solid #304760;
+                border-radius: 13px;
+            }
+            QFrame#ocrManualCard QLabel {
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        manual_body = QVBoxLayout(manual_card)
+        manual_body.setContentsMargins(15, 14, 15, 14)
+        manual_body.setSpacing(10)
+
+        manual_heading = QLabel("RU\u010cNI UNOS / KOREKCIJA")
+        manual_heading.setStyleSheet(
+            "color:#5DD9D0; font-size:12px; font-weight:bold;"
+        )
+        manual_body.addWidget(manual_heading)
+
+        manual_detail = QLabel(
+            "Unesi ili ispravi registarsku oznaku odabranog prolaska."
+        )
+        manual_detail.setWordWrap(True)
+        manual_detail.setStyleSheet(
+            "color:#91A6BE; font-size:11px;"
+        )
+        manual_body.addWidget(manual_detail)
+
+        self.manual_plate_input.setMinimumHeight(39)
+        self.manual_plate_input.setStyleSheet("""
+            QLineEdit {
+                background: #102035;
+                color: #F0F8FC;
+                border: 1px solid #39546E;
+                border-radius: 8px;
+                padding: 7px 12px;
+                font-size: 12px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #5DD9D0;
+            }
+        """)
+        manual_body.addWidget(self.manual_plate_input)
+
+        self.manual_save_button.setMinimumHeight(39)
+        self.manual_save_button.setStyleSheet("""
+            QPushButton {
+                background: #176B73;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 8px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #20858C;
+            }
+        """)
+        manual_body.addWidget(self.manual_save_button)
+        actions.addWidget(manual_card)
+
         self.status_label = QLabel(
-            "OCR rezultati nisu automatski potvrđeni."
+            "OCR rezultati nisu automatski potvr\u0111eni."
         )
         self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("color: #91A6BE;")
+        self.status_label.setStyleSheet(
+            "color:#91A6BE; font-size:11px;"
+        )
         actions.addWidget(self.status_label)
-        lower.addLayout(actions, 1)
+        actions.addStretch()
+
+        # Scroll prevents cards from being compressed vertically.
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent;")
+        scroll_content.setLayout(actions)
+
+        action_scroll = QScrollArea()
+        action_scroll.setWidgetResizable(True)
+        action_scroll.setFrameShape(QFrame.NoFrame)
+        action_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+        action_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAsNeeded
+        )
+        action_scroll.setWidget(scroll_content)
+        action_scroll.setMinimumWidth(350)
+        action_scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: #102035;
+                width: 9px;
+                border: none;
+            }
+            QScrollBar::handle:vertical {
+                background: #39546E;
+                border-radius: 4px;
+                min-height: 28px;
+            }
+        """)
+
+        lower.addWidget(action_scroll, 2)
 
         layout.addLayout(lower, 2)
         self.refresh_data()
@@ -243,7 +556,7 @@ class OCRPage(QWidget):
                     SELECT e.id, s.session_code, e.counted_at,
                            e.vehicle_type, e.lane, e.direction,
                            o.registration_text, o.confidence,
-                           o.review_status
+                           o.review_status, o.entry_source
                     FROM vehicle_events e
                     JOIN traffic_sessions s ON s.id = e.session_id
                     LEFT JOIN ocr_results o ON o.event_id = e.id
@@ -272,13 +585,28 @@ class OCRPage(QWidget):
                             text = str(value)
                     elif col == 7 and value is not None:
                         text = f"{float(value) * 100:.1f}%"
+                    elif col == 6 and row_data[8] == "REJECTED":
+                        text = "Odbačeno"
+                    elif col == 7 and row_data[8] == "REJECTED":
+                        text = "?"
                     elif col == 8:
-                        labels = {
-                            "PENDING": "Treba potvrda",
-                            "CONFIRMED": "Potvr\u0111eno",
-                            "REJECTED": "Nije potvr\u0111eno",
-                        }
-                        text = labels.get(value, "Nije obra\u0111eno")
+                        source = row_data[9]
+                        if value == "REJECTED":
+                            text = "Ručno odbačeno"
+                        elif value == "CONFIRMED":
+                            text = (
+                                "Ručno potvrđeno"
+                                if source in (
+                                    "MANUAL_ENTRY",
+                                    "MANUAL_CORRECTION",
+                                    "MANUAL_CONFIRMATION"
+                                )
+                                else "Potvrđeno"
+                            )
+                        elif value == "PENDING":
+                            text = "Na provjeri"
+                        else:
+                            text = "Nije obrađeno"
                     else:
                         text = "\u2014" if value is None else str(value)
 
@@ -362,7 +690,7 @@ class OCRPage(QWidget):
 
             if not photos:
                 self.photo_label.setPixmap(QPixmap())
-                self.photo_label.setText("Fotografija nije prona?ena.")
+                self.photo_label.setText("Fotografija nije pronađena.")
                 self.photo_info.setText(
                     f"Prolazak {event_id} ? sesija {session_code}"
                 )
@@ -389,7 +717,7 @@ class OCRPage(QWidget):
         if pixmap.isNull():
             self.photo_label.setPixmap(QPixmap())
             self.photo_label.setText(
-                "Fotografiju nije mogu?e prikazati."
+                "Fotografiju nije moguće prikazati."
             )
             return
 
@@ -408,14 +736,34 @@ class OCRPage(QWidget):
 
 
     def run_ocr(self):
+        # RIVA_OCR_RUN_COUNTER_V1
         if getattr(self, "ocr_worker", None) is not None:
             if self.ocr_worker.isRunning():
                 return
+
+        try:
+            with sqlite3.connect(DATABASE_PATH) as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS ocr_run_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.execute(
+                    "INSERT INTO ocr_run_history DEFAULT VALUES"
+                )
+        except Exception as error:
+            QMessageBox.critical(
+                self, "OCR evidencija",
+                f"Nije moguce evidentirati OCR obradu: {error}"
+            )
+            return
 
         self.ocr_button.setEnabled(False)
         self.refresh_button.setEnabled(False)
         self.confirm_button.setEnabled(False)
         self.reject_button.setEnabled(False)
+        self.manual_save_button.setEnabled(False)
         self.status_label.setText("OCR obrada u tijeku...")
 
         self.ocr_worker = OCRWorker(self)
@@ -427,17 +775,17 @@ class OCRPage(QWidget):
     def on_ocr_finished(self, stats):
         self.refresh_data()
         message = (
-            f"Obrada zavrsena. Fotografija: {stats['photos']} | "
+            f"Obrada završena. Fotografija: {stats['photos']} | "
             f"Spremljeno: {stats['saved']} | "
             f"Bez teksta: {stats['no_text']} | "
-            f"Postojeci: {stats['existing']} | "
-            f"Greske: {stats['errors']}"
+            f"Postojeći: {stats['existing']} | "
+            f"Greške: {stats['errors']}"
         )
         self.status_label.setText(message)
         QMessageBox.information(self, "OCR obrada", message)
 
     def on_ocr_failed(self, error):
-        self.status_label.setText(f"OCR greska: {error}")
+        self.status_label.setText(f"OCR greška: {error}")
         QMessageBox.critical(self, "OCR obrada", str(error))
 
     def on_ocr_thread_finished(self):
@@ -445,6 +793,7 @@ class OCRPage(QWidget):
         self.refresh_button.setEnabled(True)
         self.confirm_button.setEnabled(True)
         self.reject_button.setEnabled(True)
+        self.manual_save_button.setEnabled(True)
 
     def set_review_status(self, status):
         event_id = self.selected_event_id()
@@ -454,28 +803,84 @@ class OCRPage(QWidget):
             )
             return
 
+        action = (
+            "odbaciti" if status == "REJECTED"
+            else "potvrditi"
+        )
+        answer = QMessageBox.question(
+            self, "OCR provjera",
+            f"?eli? li {action} o?itanje za prolazak {event_id}?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if answer != QMessageBox.Yes:
+            return
+
         try:
-            with sqlite3.connect(DATABASE_PATH) as conn:
-                cursor = conn.execute("""
-                    UPDATE ocr_results
-                    SET review_status = ?
-                    WHERE event_id = ? AND review_status = 'PENDING'
-                """, (status, event_id))
-                changed = cursor.rowcount
-
-            if not changed:
-                QMessageBox.information(
-                    self, "OCR provjera",
-                    "Za ovaj prolazak nema OCR zapisa koji čeka provjeru."
+            user = getattr(self.window(), "username", None)
+            save_review_decision(event_id, status, user)
+            try:
+                log_event(
+                    "OCR_MANUAL_REJECTED"
+                    if status == "REJECTED"
+                    else "OCR_MANUAL_CONFIRMED",
+                    username=user,
+                    description=f"OCR odluka za prolazak {event_id}",
+                    status="SUCCESS"
                 )
-                return
+            except Exception:
+                pass
 
-            self.status_label.setText(
-                "Status očitanja: " + status
-            )
             self.refresh_data()
-        except Exception as error:
-            QMessageBox.critical(
-                self, "OCR provjera",
-                f"Spremanje nije uspjelo: {type(error).__name__}"
+            self.status_label.setText(
+                "Ručno odbačeno."
+                if status == "REJECTED"
+                else "Ručno potvrđeno."
             )
+        except Exception as error:
+            QMessageBox.warning(
+                self, "OCR provjera",
+                f"Spremanje nije uspjelo: {error}"
+            )
+
+    def sync_manual_plate(self):
+        row = self.table.currentRow()
+        if row < 0:
+            self.manual_plate_input.clear()
+            return
+        cell = self.table.item(row, 6)
+        value = cell.text().strip() if cell else ""
+        self.manual_plate_input.setText("" if value in ("", "?", "Odbačeno") else value)
+
+    def save_manual_plate(self):
+        event_id = self.selected_event_id()
+        if event_id is None:
+            QMessageBox.information(self, "Ručni unos", "Najprije odaberi prolazak.")
+            return
+        registration = self.manual_plate_input.text().strip().upper()
+        row = self.table.currentRow()
+        previous_cell = self.table.item(row, 6)
+        previous = previous_cell.text().strip() if previous_cell else ""
+        if registration == previous:
+            QMessageBox.information(self, "Ručni unos", "Registracija nije promijenjena.")
+            return
+        message = ("Spremiti registraciju za prolazak " + str(event_id) + "?\n\n"
+                   + ("Prethodna: " + previous + "\n" if previous not in ("", "\u2014") else "")
+                   + "Nova: " + registration + "\n\nIzmjena će biti evidentirana.")
+        if QMessageBox.question(self, "Potvrda izmjene", message,
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        try:
+            user = getattr(self.window(), "username", None)
+            action = save_manual_registration(event_id, registration, user)
+            # U evidenciji aktivnosti nema stvarnih registracija.
+            try:
+                log_event("OCR_MANUAL_CORRECTION" if action == "MANUAL_CORRECTION" else "OCR_MANUAL_ENTRY",
+                          username=user, description=f"Ručna intervencija za prolazak {event_id}",
+                          status="SUCCESS")
+            except Exception:
+                pass  # Podaci i povijest izmjene vec su spremljeni u bazi.
+            self.refresh_data()
+            self.status_label.setText("Ručna registracija uspješno spremljena.")
+        except Exception as error:
+            QMessageBox.critical(self, "Ručni unos", f"Spremanje nije uspjelo: {error}")

@@ -772,7 +772,7 @@ class ReportsPage(QWidget):
 
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Spremi OCR izvjesce",
+            "Spremi OCR izvje??e",
             str(Path.home() / "Documents" / filename),
             "PDF datoteke (*.pdf)"
         )
@@ -910,15 +910,15 @@ class ReportsPage(QWidget):
             )
         except Exception as exc:
             self.ocr_info.setText(
-                "Greska pri ucitavanju OCR podataka: "
+                "Greška pri u?itavanju OCR podataka: "
                 + str(exc)
             )
             return
 
         statuses = {
             "PENDING": "Na provjeri",
-            "CONFIRMED": "Potvrdjeno",
-            "REJECTED": "Odbijeno"
+            "CONFIRMED": "Potvrđeno",
+            "REJECTED": "Ručno odbačeno"
         }
 
         confirmed = sum(
@@ -946,10 +946,23 @@ class ReportsPage(QWidget):
                 item.get("vehicle_type"),
                 item.get("lane"),
                 item.get("direction"),
-                item.get("registration_text"),
-                statuses.get(
-                    item.get("review_status"),
-                    "Nije obradjeno"
+                (
+                    "Odbačeno"
+                    if item.get("review_status") == "REJECTED"
+                    else item.get("registration_text")
+                ),
+                (
+                    "Ručno potvrđeno"
+                    if item.get("review_status") == "CONFIRMED"
+                    and item.get("entry_source") in (
+                        "MANUAL_ENTRY",
+                        "MANUAL_CORRECTION",
+                        "MANUAL_CONFIRMATION"
+                    )
+                    else statuses.get(
+                        item.get("review_status"),
+                        "Nije obrađeno"
+                    )
                 )
             ]
 
